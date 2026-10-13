@@ -1,0 +1,15 @@
+# .NET build output
+**/bin/
+**/obj/
+
+# Test and analysis output
+**/TestResults/
+**/.sonarqube/
+
+# Visual Studio user state
+.vs/
+*.suo
+*.user
+
+# Local folder publish profiles
+HRMITestFlaUI/Properties/PublishProfiles/FolderProfile*.pubxml
