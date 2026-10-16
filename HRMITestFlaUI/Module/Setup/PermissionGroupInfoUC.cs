@@ -15,38 +15,129 @@ namespace HRMITestFlaUI.Pages.Setup
 {
     public class PermissionGroupInfoUC
     {
-        // ── ตัวแปรสำหรับเก็บออบเจ็กต์หน้าต่างหลัก, ระบบ Automation และตัวนับผลการทดสอบ (Success/Fail) ──
-        private readonly AutomationElement _mainWindow;
-        private readonly UIA3Automation _automation;
+        // =========================================================================================
+        // หมวดที่ 1: ข้อมูลการทดสอบทั้ง 5 ขั้น (Test Data)
+        // =========================================================================================
 
-        private int _totalSuccess = 0;
-        private int _totalFail = 0;
+        // --- Data Records สำหรับใช้งานในแต่ละขั้นตอน ---
+        private sealed record PermissionGroupAddItem(
+            string Code,
+            string NameTh,
+            string NameEn,
+            string Remark);
 
-        // ── ค่าคงที่สำหรับการตั้งค่า Timeout และข้อมูลการระบุตัวตนของฟอร์ม ──
-        private const int TimeoutMs = 6000;
-        private const string FormId = "emPermissionGroupInfoUC";
-        private const string GeneralTabId = "devTabPgGeneral";
-        private const string RequiredSuffix = " กรุณาป้อนข้อมูล";
-        private const string PageName = "PermissionGroupInfoPage";
-        private const string ScreenNameTh = "กำหนดกลุ่มผู้ใช้";
-        private const string ModuleName = "Setup";
+        private sealed record ValidationItem(
+            string TestCaseId,
+            string Code,
+            string NameTh,
+            string SaveBtn,
+            int TimeoutMs,
+            string[] ExpectedErrors);
 
-        // ── ข้อความแจ้งเตือนมาตรฐาน ──
+        private sealed record PermissionGroupEditItem(
+            string TestCaseId,
+            string OldCode,
+            string NewCode,
+            string NameTh,
+            string NameEn,
+            string Remark,
+            string SaveBtn,
+            bool NeedsClose);
+
+        private sealed record DeleteItem(
+            string TargetCode,
+            string DialogBtn,
+            bool ExpectDeleted);
+
+        // [ขั้นที่ 1] ข้อมูลทดสอบการสร้างใหม่ (Add / Navigate)
+        private static readonly PermissionGroupAddItem[] Step1_AddCases =
+        {
+            new("GRP001", "ผู้ดูแลระบบสูงสุด", "Super Administrator", "กลุ่มผู้ดูแลระบบทั้งหมด"),
+            new("GRP002", "เจ้าหน้าที่ฝ่ายบุคคล", "HR Officer", "กลุ่มผู้ใช้งานสำหรับฝ่ายบุคคล"),
+            new("GRP003", "ผู้จัดการฝ่าย", "Department Manager", "กลุ่มผู้จัดการ"),
+            new("GRP004", "พนักงานทั่วไป", "General Employee", "กลุ่มพนักงานทั่วไป"),
+            new("GRP005", "เจ้าหน้าที่ฝ่ายบัญชี", "Accounting Officer", "กลุ่มผู้ใช้งานสำหรับฝ่ายบัญชีและการเงิน")
+        };
+
+        // [ขั้นที่ 2] ข้อมูลทดสอบ Validation ตอนเพิ่ม (Add Validation)
         private const string CodeRequiredMsg = "รหัสกลุ่มผู้ใช้ ไม่สามารถเป็นค่าว่าง";
         private const string NameRequiredMsg = "ชื่อกลุ่มผู้ใช้ ไม่สามารถเป็นค่าว่าง";
         private const string CodeDuplicateMsg = "รหัสกลุ่มผู้ใช้ ห้ามซ้ำ";
         private const string NameDuplicateMsg = "ชื่อกลุ่มผู้ใช้ ห้ามซ้ำ";
 
-        /* Constructor สำหรับรับค่า MainWindow และ Automation Instance เข้ามาใช้งานภายในคลาส */
-        public PermissionGroupInfoUC(AutomationElement mainWindow, UIA3Automation automation)
+        private static readonly ValidationItem[] Step2_AddValidationCases =
         {
-            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
-            _automation = automation ?? throw new ArgumentNullException(nameof(automation));
-        }
+            new("TestCase01_MissingGroupCode", "", "ผู้ดูแลระบบสูงสุด", "Save", 4000,
+                new[] { CodeRequiredMsg }),
 
-        //---------------------------------------------------------
-        // 🚀 MASTER METHOD: เรียกรันครอบคลุมทุกชุดการทดสอบ + บันทึกลง Excel Log
-        //---------------------------------------------------------
+            new("TestCase02_MissingGroupName", "GRP006", "", "Save and New", 4000,
+                new[] { NameRequiredMsg }),
+
+            new("TestCase03_MissingCodeAndName", "", "", "Save and New", 4000,
+                new[] { CodeRequiredMsg, NameRequiredMsg }),
+
+            new("TestCase04_DuplicateGroupCode", "GRP002", "ผู้ดูแลทั่วไป", "Save", 4000,
+                new[] { CodeDuplicateMsg }),
+
+            new("TestCase05_DuplicateGroupName", "GRP006", "ผู้จัดการฝ่าย", "Save and Close", 5000,
+                new[] { NameDuplicateMsg })
+        };
+
+        // [ขั้นที่ 3] ข้อมูลทดสอบการแก้ไขข้อมูล (Edit Records)
+        private static readonly PermissionGroupEditItem[] Step3_EditCases =
+        {
+            new("TestCase06_EditRow1", "GRP001", "HRM01", "ผู้จัดการฝ่ายทรัพยากรบุคคล", "HR Manager", "แก้ไขกลุ่มผู้ดูแล", "Save", true),
+            new("TestCase07_EditRow2", "GRP002", "ACC01", "ผู้ตรวจสอบบัญชี", "Auditor", "แก้ไขกลุ่ม HR", "Save and Close", false)
+        };
+
+        // [ขั้นที่ 4] ข้อมูลทดสอบ Validation ตอนแก้ไข (Edit Validation)
+        private const string EditTargetRow = "HRM01";
+        private const string RequiredSuffix = " กรุณาป้อนข้อมูล";
+
+        private static readonly ValidationItem[] Step4_EditValidationCases =
+        {
+            new("TestCase08_EditValidation_MissingCode", "", "ผู้จัดการฝ่ายทรัพยากรบุคคล", "Save", 4000,
+                new[] { $"{CodeRequiredMsg}{RequiredSuffix}" }),
+
+            new("TestCase08_EditValidation_MissingName", "HRM01", "", "Save", 4000,
+                new[] { $"{NameRequiredMsg}{RequiredSuffix}" }),
+
+            new("TestCase08_EditValidation_MissingBoth", "", "", "Save", 4000,
+                new[] { $"{CodeRequiredMsg}{RequiredSuffix}", $"{NameRequiredMsg}{RequiredSuffix}" }),
+
+            new("TestCase08_EditValidation_DuplicateCode", "ACC01", "ผู้จัดการฝ่ายทรัพยากรบุคคล", "Save", 4000,
+                new[] { $"{CodeDuplicateMsg}{RequiredSuffix}" }),
+
+            new("TestCase08_EditValidation_DuplicateName", "HRM01", "ผู้จัดการฝ่าย", "Save and Close", 5000,
+                new[] { $"{NameDuplicateMsg}{RequiredSuffix}" })
+        };
+
+        // [ขั้นที่ 5] ข้อมูลทดสอบการลบข้อมูล (Delete Records)
+        private static readonly DeleteItem[] Step5_DeleteCases =
+        {
+            new("ACC01", "Yes", true),
+            new("HRM01", "No", false)
+        };
+
+
+        // =========================================================================================
+        // หมวดที่ 2: ส่วนที่ขึ้นกับหน้าจอนั้นๆ (Screen-Specific Implementation)
+        // **เมื่อเปลี่ยนไปทำหน้าจออื่น ต้องมาแก้ไขค่าและเมทอดในส่วนนี้ทั้งหมด**
+        // =========================================================================================
+
+        // 2.1 Locator & Mappings ประจำหน้าจอ
+        private const string ModuleName = "Setup";
+        private const string ScreenNameTh = "กำหนดกลุ่มผู้ใช้";
+        private const string PageName = "PermissionGroupInfoPage";
+        private const string FormId = "emPermissionGroupInfoUC";
+        private const string GeneralTabId = "devTabPgGeneral";
+
+        // 2.2 ฟิลด์ Input ประจำหน้าจอ
+        private const string IdGroupCode = "devTxtPermissionGroupCode";
+        private const string IdGroupName = "devTxtPermissionGroupName";
+        private const string IdGroupNameEng = "devTxtPermissionGroupNameEng";
+        private const string IdRemark = "devMemoRemark";
+
         public void RunFullTestSuite()
         {
             _totalSuccess = 0;
@@ -62,20 +153,11 @@ namespace HRMITestFlaUI.Pages.Setup
             RunDeleteTests();
         }
 
-        //-------------------------------------------
-        // * 1. ทดสอบการ New โดยเพิ่มข้อมูล 5 ข้อมูล *
-        //-------------------------------------------
+        /// <summary>
+        /// ขั้นที่ 1: เปิดหน้าจอและกรอกข้อมูลสร้างใหม่
+        /// </summary>
         public void NavigateToPermissionGroupInfoUC()
         {
-            var groups = new[]
-            {
-                new { Code = "GRP001", NameTh = "ผู้ดูแลระบบสูงสุด", NameEn = "Super Administrator", Remark = "กลุ่มผู้ดูแลระบบทั้งหมด" },
-                new { Code = "GRP002", NameTh = "เจ้าหน้าที่ฝ่ายบุคคล", NameEn = "HR Officer", Remark = "กลุ่มผู้ใช้งานสำหรับฝ่ายบุคคล" },
-                new { Code = "GRP003", NameTh = "ผู้จัดการฝ่าย", NameEn = "Department Manager", Remark = "กลุ่มผู้จัดการ" },
-                new { Code = "GRP004", NameTh = "พนักงานทั่วไป", NameEn = "General Employee", Remark = "กลุ่มพนักงานทั่วไป" },
-                new { Code = "GRP005", NameTh = "เจ้าหน้าที่ฝ่ายบัญชี", NameEn = "Accounting Officer", Remark = "กลุ่มผู้ใช้งานสำหรับฝ่ายบัญชีและการเงิน" }
-            };
-
             string stage = "TestCase00_AddPermissionGroupData";
             TestLogger.LogInfo(PageName, "เริ่มทดสอบหน้าจอ Permission Group Setup Info");
             TestProgressHelper.Report(12, "Opening Setup -> Permission Group Info Menu via Search...");
@@ -83,11 +165,11 @@ namespace HRMITestFlaUI.Pages.Setup
             if (!TryOpenPermissionGroupMenu(stage)) return;
 
             Window? form = null;
-            for (int i = 0; i < groups.Length; i++)
+            for (int i = 0; i < Step1_AddCases.Length; i++)
             {
-                var g = groups[i];
+                var g = Step1_AddCases[i];
                 string testName = $"{stage}_{g.Code}";
-                TestProgressHelper.Report(14 + (i * 3), $"Adding Permission Group ({i + 1}/5): {g.Code} - {g.NameTh}...");
+                TestProgressHelper.Report(14 + (i * 3), $"Adding Permission Group ({i + 1}/{Step1_AddCases.Length}): {g.Code} - {g.NameTh}...");
 
                 try
                 {
@@ -95,7 +177,7 @@ namespace HRMITestFlaUI.Pages.Setup
                     var tab = GetGeneralTab(form);
                     FillPermissionGroupFields(tab, g.Code, g.NameTh, g.NameEn, g.Remark);
 
-                    string saveBtn = i == 0 ? "Save" : (i == groups.Length - 1 ? "Save and Close" : "Save and New");
+                    string saveBtn = i == 0 ? "Save" : (i == Step1_AddCases.Length - 1 ? "Save and Close" : "Save and New");
                     if (!TrySaveAndHandleDuplicate(form, testName, g.Code, saveBtn))
                     {
                         form = null;
@@ -104,7 +186,7 @@ namespace HRMITestFlaUI.Pages.Setup
 
                     if (saveBtn == "Save and New")
                     {
-                        WaitUntil(() => string.IsNullOrEmpty(tab.FindFirstDescendant(cf => cf.ByAutomationId("devTxtPermissionGroupCode"))?.AsTextBox()?.Text), 3000);
+                        WaitUntil(() => string.IsNullOrEmpty(tab.FindFirstDescendant(cf => cf.ByAutomationId(IdGroupCode))?.AsTextBox()?.Text), 3000);
                         LogSuccess(testName, $"'{g.Code}' บันทึกสำเร็จ (Save and New)");
                     }
                     else
@@ -123,53 +205,9 @@ namespace HRMITestFlaUI.Pages.Setup
             }
         }
 
-        private bool TryOpenPermissionGroupMenu(string stage)
-        {
-            try
-            {
-                var searchBox = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("baritemSearch"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit)), 4000)
-                                ?? throw new Exception("ไม่พบช่องค้นหา baritemSearch");
-
-                WaitUntil(() => { try { searchBox.Focus(); return true; } catch { return false; } }, 1000);
-                string searchKeyword = ScreenNameTh;
-                if (searchBox.Patterns.Value.IsSupported)
-                    searchBox.Patterns.Value.Pattern.SetValue(searchKeyword);
-                else
-                    Keyboard.Type(searchKeyword);
-
-                var searchBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("barChkSearch"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Find")), 4000)
-                                ?? throw new Exception("ไม่พบปุ่มค้นหา barChkSearch");
-
-                searchBtn.Click();
-
-                var menuResult = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName(searchKeyword))
-                                               ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 1")), 4000)
-                                ?? throw new Exception("ไม่พบผลลัพธ์เมนูจากการค้นหา");
-
-                menuResult.Focus();
-                menuResult.Click();
-
-                Keyboard.Press(VirtualKeyShort.ENTER);
-
-                // เช็คโดยตรงว่าหน้าจอแสดงปุ่ม New พร้อมใช้งาน
-                return WaitUntil(() =>
-                {
-                    var newBtn = _mainWindow.FindFirstDescendant(cf => cf.ByName("New"));
-                    return newBtn != null && newBtn.Properties.IsEnabled.ValueOrDefault && !newBtn.Properties.IsOffscreen.ValueOrDefault;
-                }, 6000);
-            }
-            catch (Exception ex)
-            {
-                LogFailure(stage, $"ค้นหาและเปิดหน้าจอไม่สำเร็จ: {ex.Message}");
-                return false;
-            }
-        }
-
-        //---------------------------------------------------------
-        // * 2. ทดสอบแจ้งเตือนต่างๆ เมื่อ New *
-        //---------------------------------------------------------
+        /// <summary>
+        /// ขั้นที่ 2: รัน Validation ตอนสร้างข้อมูลใหม่
+        /// </summary>
         public void RunAllValidationTests()
         {
             const string stage = "TestCase01-05_Validation";
@@ -181,101 +219,95 @@ namespace HRMITestFlaUI.Pages.Setup
 
             var tab = GetGeneralTab(form);
 
-            // เคส 1: ไม่กรอกรหัสกลุ่มผู้ใช้
-            RunStep("TestCase01_MissingGroupCode", () => FillSaveAssert(tab, form, "", "ผู้ดูแลระบบสูงสุด", "Save", "TestCase01_MissingGroupCode", 4000, CodeRequiredMsg));
+            foreach (var testCase in Step2_AddValidationCases.Take(4))
+            {
+                RunStep(testCase.TestCaseId, () =>
+                    FillSaveAssert(tab, form, testCase.Code, testCase.NameTh, testCase.SaveBtn,
+                        testCase.TestCaseId, testCase.TimeoutMs, testCase.ExpectedErrors));
+            }
 
-            // เคส 2: ไม่กรอกชื่อกลุ่มผู้ใช้ (ใช้รหัส GRP006 เพื่อป้องกันไม่ให้ติดรหัสซ้ำ GRP001)
-            RunStep("TestCase02_MissingGroupName", () => FillSaveAssert(tab, form, "GRP006", "", "Save and New", "TestCase02_MissingGroupName", 4000, NameRequiredMsg));
+            var dupCase = Step2_AddValidationCases[4];
+            RunStep(dupCase.TestCaseId, () =>
+                FillSaveAssert(tab, form, dupCase.Code, dupCase.NameTh, dupCase.SaveBtn,
+                    dupCase.TestCaseId, dupCase.TimeoutMs, dupCase.ExpectedErrors));
 
-            // เคส 3: ไม่กรอกทั้งรหัสและชื่อกลุ่มผู้ใช้
-            RunStep("TestCase03_MissingCodeAndName", () => FillSaveAssert(tab, form, "", "", "Save and New", "TestCase03_MissingCodeAndName", 4000, CodeRequiredMsg, NameRequiredMsg));
-
-            // เคส 4: กรอกรหัสซ้ำ (ใช้ชื่อที่ไม่ซ้ำ เพื่อให้ระบบแจ้งเตือนเฉพาะ "รหัสซ้ำ")
-            RunStep("TestCase04_DuplicateGroupCode", () => FillSaveAssert(tab, form, "GRP002", "ผู้ดูแลทั่วไป", "Save", "TestCase04_DuplicateGroupCode", 4000, CodeDuplicateMsg));
-
-            // เคส 5: กรอกชื่อซ้ำ และทดสอบลำดับการกดปุ่ม Close (Yes -> Cancel -> No)
-            const string testName = "TestCase05_DuplicateGroupName";
-            RunStep(testName, () => FillSaveAssert(tab, form, "GRP006", "ผู้จัดการฝ่าย", "Save and Close", testName, 5000, NameDuplicateMsg));
-            RunCloseDialogSequence(form, testName, NameDuplicateMsg);
+            RunCloseDialogSequence(form, dupCase.TestCaseId, NameDuplicateMsg);
         }
 
-        //-------------------------------------------
-        // * 3. ทดสอบ Edit *
-        //-------------------------------------------
+        /// <summary>
+        /// ขั้นที่ 3: เลือกแก้ไขรายการในตาราง
+        /// </summary>
         public void RunEditTests()
         {
             TestProgressHelper.Report(50, "Starting Edit Operations...");
-            var edits = new (string Name, string OldCode, string NewCode)[]
-            {
-                ("TestCase06_EditRow1", "GRP001", "HRM01"),
-                ("TestCase07_EditRow2", "GRP002", "ACC01")
-            };
 
-            foreach (var e in edits)
+            foreach (var e in Step3_EditCases)
             {
-                bool isClose = e.NewCode == "HRM01";
                 try
                 {
                     var form = ClickRowAndOpenEdit(e.OldCode);
                     var tab = GetGeneralTab(form);
-                    FillPermissionGroupFields(tab, e.NewCode, isClose ? "ผู้จัดการฝ่ายทรัพยากรบุคคล" : "ผู้ตรวจสอบบัญชี", isClose ? "HR Manager" : "Auditor", isClose ? "แก้ไขกลุ่มผู้ดูแล" : "แก้ไขกลุ่ม HR");
+                    FillPermissionGroupFields(tab, e.NewCode, e.NameTh, e.NameEn, e.Remark);
 
-                    if (!TrySaveAndHandleDuplicate(form, e.Name, e.NewCode, isClose ? "Save" : "Save and Close")) continue;
-                    if (isClose) form.FindFirstDescendant(cf => cf.ByName("Close"))?.Click();
+                    if (!TrySaveAndHandleDuplicate(form, e.TestCaseId, e.NewCode, e.SaveBtn)) continue;
+                    if (e.NeedsClose) form.FindFirstDescendant(cf => cf.ByName("Close"))?.Click();
 
                     WaitForClosed(() => FindOpenForm());
                     RefreshGrid();
 
                     if (VerifyRecordInGrid(e.NewCode, refresh: false))
-                        LogSuccess(e.Name, $"แก้ไข '{e.OldCode}' เป็น '{e.NewCode}' สำเร็จ (พบในตารางหลัก)");
+                        LogSuccess(e.TestCaseId, $"แก้ไข '{e.OldCode}' เป็น '{e.NewCode}' สำเร็จ (พบในตารางหลัก)");
                     else
-                        LogFailure(e.Name, $"แก้ไข '{e.OldCode}' เป็น '{e.NewCode}' แล้วแต่ไม่พบในตารางหลัก");
+                        LogFailure(e.TestCaseId, $"แก้ไข '{e.OldCode}' เป็น '{e.NewCode}' แล้วแต่ไม่พบในตารางหลัก");
                 }
-                catch (Exception ex) { LogFailure(e.Name, $"แก้ไข '{e.OldCode}' ไม่สำเร็จ: {ex.Message}"); }
+                catch (Exception ex)
+                {
+                    LogFailure(e.TestCaseId, $"แก้ไข '{e.OldCode}' ไม่สำเร็จ: {ex.Message}");
+                }
             }
         }
 
-        //-------------------------------------
-        // * 4. ทดสอบการแจ้งเตือน Edit *
-        //-------------------------------------
+        /// <summary>
+        /// ขั้นที่ 4: รัน Validation ตอนแก้ไขข้อมูล
+        /// </summary>
         public void RunEditValidationTests()
         {
             const string baseTest = "TestCase08_EditValidation";
 
             Window form;
-            try { form = ClickRowAndOpenEdit("HRM01"); }
+            try { form = ClickRowAndOpenEdit(EditTargetRow); }
             catch (Exception ex) { LogFailure(baseTest, $"เปิดฟอร์ม Edit ไม่สำเร็จ: {ex.Message}"); return; }
 
             var tab = GetGeneralTab(form);
 
-            // Edit Validation 1: ลบรหัสออกให้ว่าง
-            RunStep($"{baseTest}_MissingCode", () => FillSaveAssert(tab, form, "", "ผู้จัดการฝ่ายทรัพยากรบุคคล", "Save", $"{baseTest}_MissingCode", 4000, $"{CodeRequiredMsg}{RequiredSuffix}"));
+            foreach (var testCase in Step4_EditValidationCases.Take(4))
+            {
+                RunStep(testCase.TestCaseId, () =>
+                    FillSaveAssert(tab, form, testCase.Code, testCase.NameTh, testCase.SaveBtn,
+                        testCase.TestCaseId, testCase.TimeoutMs, testCase.ExpectedErrors));
+            }
 
-            // Edit Validation 2: ลบชื่อออกให้ว่าง
-            RunStep($"{baseTest}_MissingName", () => FillSaveAssert(tab, form, "HRM01", "", "Save", $"{baseTest}_MissingName", 4000, $"{NameRequiredMsg}{RequiredSuffix}"));
+            var dupEditCase = Step4_EditValidationCases[4];
+            RunStep(dupEditCase.TestCaseId, () =>
+                FillSaveAssert(tab, form, dupEditCase.Code, dupEditCase.NameTh, dupEditCase.SaveBtn,
+                    dupEditCase.TestCaseId, dupEditCase.TimeoutMs, dupEditCase.ExpectedErrors));
 
-            // Edit Validation 3: ลบทั้งรหัสและชื่อออก
-            RunStep($"{baseTest}_MissingBoth", () => FillSaveAssert(tab, form, "", "", "Save", $"{baseTest}_MissingBoth", 4000, $"{CodeRequiredMsg}{RequiredSuffix}", $"{NameRequiredMsg}{RequiredSuffix}"));
-
-            // Edit Validation 4: แก้ไขเป็นรหัสซ้ำ
-            RunStep($"{baseTest}_DuplicateCode", () => FillSaveAssert(tab, form, "ACC01", "ผู้จัดการฝ่ายทรัพยากรบุคคล", "Save", $"{baseTest}_DuplicateCode", 4000, $"{CodeDuplicateMsg}{RequiredSuffix}"));
-
-            // Edit Validation 5: แก้ไขเป็นชื่อซ้ำ
-            const string sub = $"{baseTest}_DuplicateName";
-            RunStep(sub, () => FillSaveAssert(tab, form, "HRM01", "ผู้จัดการฝ่าย", "Save and Close", sub, 5000, $"{NameDuplicateMsg}{RequiredSuffix}"));
-            RunCloseDialogSequence(form, sub, $"{NameDuplicateMsg}{RequiredSuffix}");
+            RunCloseDialogSequence(form, dupEditCase.TestCaseId, $"{NameDuplicateMsg}{RequiredSuffix}");
 
             LogSuccess(baseTest, "รัน Validation Edit ครบทุกเคสแล้ว");
         }
 
-        //-------------------------------
-        // * 5. ทดสอบ Delete *
-        //-------------------------------
+        /// <summary>
+        /// ขั้นที่ 5: ทดสอบการลบรายการในตาราง
+        /// </summary>
         public void RunDeleteTests()
         {
             const string baseTest = "TestCase09_Delete";
-            RunDeleteCase(baseTest, "ACC01", "Yes", expectDeleted: true);
-            RunDeleteCase(baseTest, "HRM01", "No", expectDeleted: false);
+
+            foreach (var testCase in Step5_DeleteCases)
+            {
+                RunDeleteCase(baseTest, testCase.TargetCode, testCase.DialogBtn, testCase.ExpectDeleted);
+            }
 
             var form = FindOpenForm();
             if (form != null)
@@ -286,6 +318,46 @@ namespace HRMITestFlaUI.Pages.Setup
 
             LogSuccess(baseTest, "ทดสอบ Delete ครบทุกเคส");
             TestLogger.LogInfo(PageName, $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
+        }
+
+        // --- Custom Mapping & Control Logic ประจำหน้าจอ PermissionGroupInfoUC ---
+        private void FillPermissionGroupFields(AutomationElement tab, string code, string nameTh, string nameEn, string remark)
+        {
+            SetText(tab, IdGroupCode, code);
+            SetText(tab, IdGroupName, nameTh);
+            SetText(tab, IdGroupNameEng, nameEn);
+            SetText(tab, IdRemark, remark);
+        }
+
+        private Window OpenForm()
+        {
+            var newBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName("New")), 3000)
+                         ?? throw new Exception("หาปุ่ม New ไม่เจอ");
+            newBtn.Click();
+
+            var form = Retry(FindOpenForm, 8000) ?? throw new Exception("หาฟอร์มไม่เจอ");
+            WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId(IdGroupCode)) != null, 4000);
+            return form;
+        }
+
+        private Window ClickRowAndOpenEdit(string code)
+        {
+            RefreshGrid();
+            var row = Retry(() => FindElementMatchingValue(code), timeoutMs: 4000)
+                    ?? throw new Exception($"หาแถว '{code}' ไม่เจอ");
+
+            WaitUntil(() => { try { row.Focus(); return true; } catch { return false; } }, 1000);
+            row.Click();
+
+            var btn = Retry(() =>
+            {
+                var b = _mainWindow.FindFirstDescendant(cf => cf.ByName("Edit"));
+                return (b != null && b.Properties.IsEnabled.ValueOrDefault) ? b : null;
+            }, 3000) ?? throw new Exception("ไม่พบปุ่ม Edit");
+            btn.Click();
+            var form = Retry(FindOpenForm, 6000) ?? throw new Exception("หาฟอร์มไม่เจอ");
+            WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId(IdGroupCode)) != null, 3000);
+            return form;
         }
 
         private void RunDeleteCase(string baseTest, string code, string btn, bool expectDeleted)
@@ -329,21 +401,100 @@ namespace HRMITestFlaUI.Pages.Setup
             catch (Exception ex) { LogFailure(testName, $"ลบ '{code}' ไม่สำเร็จ: {ex.Message}"); }
         }
 
-        //-------------------------------------
-        // * Shared test-flow helpers *
-        //-------------------------------------
-        private Window GetOrOpenForm() => Retry(FindOpenForm, 1500) ?? OpenForm();
-
-        private Window OpenForm()
+        private bool TrySaveAndHandleDuplicate(Window form, string testName, string code, string saveBtn)
         {
-            var newBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName("New")), 3000)
-                         ?? throw new Exception("หาปุ่ม New ไม่เจอ");
-            newBtn.Click();
+            var btn = form.FindFirstDescendant(cf => cf.ByName(saveBtn)) ?? throw new Exception($"ไม่พบปุ่ม {saveBtn}");
+            btn.Click();
 
-            var form = Retry(FindOpenForm, 8000) ?? throw new Exception("หาฟอร์มไม่เจอ");
-            WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId("devTxtPermissionGroupCode")) != null, 4000);
-            return form;
+            if (testName.Contains("Validation") || testName.Contains("Duplicate")) return true;
+
+            var panel = FindTaskResultPanel(form, 1500);
+            if (panel == null) return true;
+
+            var texts = GetPanelTexts(panel);
+            string? dup = texts.Any(t => t.Contains(CodeDuplicateMsg)) ? "รหัสกลุ่มผู้ใช้ซ้ำ" :
+                          texts.Any(t => t.Contains(NameDuplicateMsg)) ? "ชื่อกลุ่มผู้ใช้ซ้ำ" : null;
+
+            if (dup == null) return true;
+
+            LogFailure(testName, $"'{code}' รหัสกลุ่มผู้ใช้ซ้ำ/ชื่อกลุ่มผู้ใช้ซ้ำ: {dup}");
+            try { ClickCloseAndHandleDialog(form, "No", $"{testName}_Close"); } catch { }
+            return false;
         }
+
+        private void FillSaveAssert(AutomationElement tab, Window form, string code, string name, string saveBtn, string testName, int timeoutMs, params string[] msgs)
+        {
+            SetText(tab, IdGroupCode, code);
+            SetText(tab, IdGroupName, name);
+
+            WaitUntil(() => { try { form.Focus(); return true; } catch { return false; } }, 1000);
+
+            form.FindFirstDescendant(cf => cf.ByName(saveBtn))?.Click();
+            AssertTaskResultCustom(form, msgs, testName, timeoutMs);
+        }
+
+
+        // =========================================================================================
+        // หมวดที่ 3: ส่วนการทำงานกลางที่ตายตัว (Common / Reusable Helpers)
+        // **ใช้งานร่วมกันได้ทุกหน้าจอ ไม่ต้องแก้ไขคำสั่งเมื่อเปลี่ยนหน้า**
+        // =========================================================================================
+
+        private readonly AutomationElement _mainWindow;
+        private readonly UIA3Automation _automation;
+        private int _totalSuccess = 0;
+        private int _totalFail = 0;
+        private const int TimeoutMs = 6000;
+
+        public PermissionGroupInfoUC(AutomationElement mainWindow, UIA3Automation automation)
+        {
+            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
+            _automation = automation ?? throw new ArgumentNullException(nameof(automation));
+        }
+
+        private bool TryOpenPermissionGroupMenu(string stage)
+        {
+            try
+            {
+                var searchBox = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("baritemSearch"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit)), 4000)
+                                ?? throw new Exception("ไม่พบช่องค้นหา baritemSearch");
+
+                WaitUntil(() => { try { searchBox.Focus(); return true; } catch { return false; } }, 1000);
+                string searchKeyword = ScreenNameTh;
+                if (searchBox.Patterns.Value.IsSupported)
+                    searchBox.Patterns.Value.Pattern.SetValue(searchKeyword);
+                else
+                    Keyboard.Type(searchKeyword);
+
+                var searchBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("barChkSearch"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Find")), 4000)
+                                ?? throw new Exception("ไม่พบปุ่มค้นหา barChkSearch");
+
+                searchBtn.Click();
+
+                var menuResult = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName(searchKeyword))
+                                               ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 1")), 4000)
+                                ?? throw new Exception("ไม่พบผลลัพธ์เมนูจากการค้นหา");
+
+                menuResult.Focus();
+                menuResult.Click();
+
+                Keyboard.Press(VirtualKeyShort.ENTER);
+
+                return WaitUntil(() =>
+                {
+                    var newBtn = _mainWindow.FindFirstDescendant(cf => cf.ByName("New"));
+                    return newBtn != null && newBtn.Properties.IsEnabled.ValueOrDefault && !newBtn.Properties.IsOffscreen.ValueOrDefault;
+                }, 6000);
+            }
+            catch (Exception ex)
+            {
+                LogFailure(stage, $"ค้นหาและเปิดหน้าจอไม่สำเร็จ: {ex.Message}");
+                return false;
+            }
+        }
+
+        private Window GetOrOpenForm() => Retry(FindOpenForm, 1500) ?? OpenForm();
 
         private Window? FindOpenForm() =>
             _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault(w => w.AutomationId == FormId || w.Name.Contains(ScreenNameTh)) ??
@@ -351,14 +502,6 @@ namespace HRMITestFlaUI.Pages.Setup
 
         private AutomationElement GetGeneralTab(Window form) =>
             Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(GeneralTabId)), 3000) ?? form;
-
-        private void FillPermissionGroupFields(AutomationElement tab, string code, string nameTh, string nameEn, string remark)
-        {
-            SetText(tab, "devTxtPermissionGroupCode", code);
-            SetText(tab, "devTxtPermissionGroupName", nameTh);
-            SetText(tab, "devTxtPermissionGroupNameEng", nameEn);
-            SetText(tab, "devMemoRemark", remark);
-        }
 
         private void SetText(AutomationElement tab, string id, string text)
         {
@@ -388,58 +531,6 @@ namespace HRMITestFlaUI.Pages.Setup
             {
                 Keyboard.Type(text);
             }
-        }
-
-        private bool TrySaveAndHandleDuplicate(Window form, string testName, string code, string saveBtn)
-        {
-            var btn = form.FindFirstDescendant(cf => cf.ByName(saveBtn)) ?? throw new Exception($"ไม่พบปุ่ม {saveBtn}");
-            btn.Click();
-
-            if (testName.Contains("Validation") || testName.Contains("Duplicate")) return true;
-
-            var panel = FindTaskResultPanel(form, 1500);
-            if (panel == null) return true;
-
-            var texts = GetPanelTexts(panel);
-            string? dup = texts.Any(t => t.Contains("รหัสกลุ่มผู้ใช้ ห้ามซ้ำ")) ? "รหัสกลุ่มผู้ใช้ซ้ำ" :
-                          texts.Any(t => t.Contains("ชื่อกลุ่มผู้ใช้ ห้ามซ้ำ")) ? "ชื่อกลุ่มผู้ใช้ซ้ำ" : null;
-
-            if (dup == null) return true;
-
-            LogFailure(testName, $"'{code}' รหัสกลุ่มผู้ใช้ซ้ำ/ชื่อกลุ่มผู้ใช้ซ้ำ: {dup}");
-            try { ClickCloseAndHandleDialog(form, "No", $"{testName}_Close"); } catch { }
-            return false;
-        }
-
-        private void FillSaveAssert(AutomationElement tab, Window form, string code, string name, string saveBtn, string testName, int timeoutMs, params string[] msgs)
-        {
-            SetText(tab, "devTxtPermissionGroupCode", code);
-            SetText(tab, "devTxtPermissionGroupName", name);
-
-            WaitUntil(() => { try { form.Focus(); return true; } catch { return false; } }, 1000);
-
-            form.FindFirstDescendant(cf => cf.ByName(saveBtn))?.Click();
-            AssertTaskResultCustom(form, msgs, testName, timeoutMs);
-        }
-
-        private Window ClickRowAndOpenEdit(string code)
-        {
-            RefreshGrid();
-            var row = Retry(() => FindElementMatchingValue(code), timeoutMs: 4000)
-                    ?? throw new Exception($"หาแถว '{code}' ไม่เจอ");
-
-            WaitUntil(() => { try { row.Focus(); return true; } catch { return false; } }, 1000);
-            row.Click();
-
-            var btn = Retry(() =>
-            {
-                var b = _mainWindow.FindFirstDescendant(cf => cf.ByName("Edit"));
-                return (b != null && b.Properties.IsEnabled.ValueOrDefault) ? b : null;
-            }, 3000) ?? throw new Exception("ไม่พบปุ่ม Edit");
-            btn.Click();
-            var form = Retry(FindOpenForm, 6000) ?? throw new Exception("หาฟอร์มไม่เจอ");
-            WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId("devTxtPermissionGroupCode")) != null, 3000);
-            return form;
         }
 
         private void RunCloseDialogSequence(Window form, string prefix, string expectedMsg)
@@ -535,7 +626,6 @@ namespace HRMITestFlaUI.Pages.Setup
                     var texts = GetPanelTexts(panel).ToList();
                     foreach (var m in pending.ToList())
                     {
-                        // ตรวจสอบทั้งข้อความเต็ม หรือข้อความแกนหลักเพื่อความยืดหยุ่น
                         if (texts.Any(t => t.Contains(m) || (m.Contains(" ") && t.Contains(m.Split(' ')[0]))))
                             pending.Remove(m);
                     }
@@ -553,7 +643,7 @@ namespace HRMITestFlaUI.Pages.Setup
             Retry(() => form.FindFirstDescendant(cf => cf.ByName("Task Result").Or(cf.ByAutomationId("dockPanelTaskResult")))
                        ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Task Result").Or(cf.ByAutomationId("dockPanelTaskResult"))), timeoutMs);
 
-        private IEnumerable<string> GetPanelTexts(AutomationElement panel)
+        private static IEnumerable<string> GetPanelTexts(AutomationElement panel)
         {
             foreach (var el in panel.FindAllDescendants())
             {

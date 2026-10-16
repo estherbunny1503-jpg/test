@@ -15,21 +15,200 @@ namespace HRMITestFlaUI.Module.Setup
 {
     public class FractionalInfoUC
     {
-        // ── ตัวแปรสำหรับเก็บออบเจ็กต์หน้าต่างหลัก, ระบบ Automation และตัวนับผลการทดสอบ (Success/Fail) ──
-        private readonly AutomationElement _mainWindow;
-        private readonly UIA3Automation _automation;
+        // =========================================================================================
+        // หมวดที่ 1: ข้อมูลการทดสอบทั้ง 5 ขั้น (Test Data)
+        // =========================================================================================
 
-        private int _totalSuccess = 0;
-        private int _totalFail = 0;
+        // --- Data Records สำหรับใช้งานในแต่ละขั้นตอน ---
+        private sealed record FractionalRecord(
+            string Code,
+            string NameTh,
+            string NameEn,
+            string Remark,
+            Action<Window> ConfigureFormatTab);
 
-        // ── ค่าคงที่สำหรับการตั้งค่า Timeout และข้อมูลการระบุตัวตนของฟอร์ม ──
-        private const int TimeoutMs = 8000;
+        private sealed record ValidationItem(
+            string TestCaseId,
+            string Code,
+            string NameTh,
+            string SaveBtn,
+            string[] ExpectedErrors);
+
+        private sealed record FractionalEditItem(
+            string TestCaseId,
+            string ExistingCode,
+            string NewCode,
+            string NewNameTh,
+            string NewNameEn,
+            string NewRemark,
+            Action<Window>? ConfigureFormatTab,
+            string SaveButtonName,
+            bool NeedsExplicitClose);
+
+        private sealed record DeleteItem(
+            string TargetCode,
+            string DialogBtn,
+            bool ExpectDeleted);
+
+        // [ขั้นที่ 1] ข้อมูลทดสอบการสร้างใหม่ (Add / Navigate)
+        private static readonly FractionalRecord[] Step1_AddCases =
+        {
+            new("XFCM-801", "ปัดทุก 25 สตางค์", "Rounding 25 Satang",
+                "ข้อมูลจำลองทดสอบปัดเศษเงินแบบสี่ช่วง",
+                form =>
+                {
+                    SwitchToFormatTab(form);
+                    SelectRadio(form, IdRadioRoundMoney, RadioMoneyName);
+                    FillGridRows(form, IdGridRoundMoney, GridMoneyLabel, new[] { ("1", "24", "1"), ("25", "49", "25") });
+                    SwitchToGeneralTab(form);
+                }),
+
+            new("XFCM-802", "ปัดเศษเงินแบบฟิกซ์พิเศษ", "Custom Fixed Money",
+                "ข้อมูลจำลองทดสอบการทำงานระบบปัดเศษคงที่",
+                form =>
+                {
+                    SwitchToFormatTab(form);
+                    SelectRadio(form, IdRadioRoundMoney, RadioMoneyName);
+                    TickCheckbox(form, IdChkNoRoundMoney, ChkNoRoundMoneyName, tick: true);
+                    SwitchToGeneralTab(form);
+                }),
+
+            new("XFCM-803", "ตัดเศษสตางค์ทิ้งทั้งหมด", "Ignore Satang Fraction",
+                "ข้อมูลจำลองทดสอบกรณีจ่ายเงินแบบตัดเศษทิ้ง",
+                form =>
+                {
+                    SwitchToFormatTab(form);
+                    SelectRadio(form, IdRadioRoundMoney, RadioMoneyName);
+                    FillGridRows(form, IdGridRoundMoney, GridMoneyLabel, new[] { ("1", "99", "1") });
+                    SwitchToGeneralTab(form);
+                }),
+
+            new("XFCT-801", "ปัดเศษเวลาทุก 15 นาที", "Time Block 15 Mins",
+                "ข้อมูลจำลองทดสอบปัดช่วงเวลาการทำงานเป็นราย 15 นาที",
+                form =>
+                {
+                    SwitchToFormatTab(form);
+                    SelectRadio(form, IdRadioRoundTime, RadioTimeName);
+                    TickCheckbox(form, IdChkNoRoundSecond, ChkNoRoundSecondName, tick: true);
+                    FillGridRows(form, IdGridRoundMinute, GridMinuteLabel, new[] { ("1", "14", "1"), ("15", "29", "15") });
+                    SwitchToGeneralTab(form);
+                }),
+
+            new("XFCT-802", "ปัดเศษวินาทีทดสอบระบบ", "Second Fraction Test",
+                "ข้อมูลจำลองตรวจสอบระบบการปัดเศษในระดับวินาที",
+                form =>
+                {
+                    SwitchToFormatTab(form);
+                    SelectRadio(form, IdRadioRoundTime, RadioTimeName);
+                    TickCheckbox(form, IdChkNoRoundMinute, ChkNoRoundMinuteName, tick: true);
+                    FillGridRows(form, IdGridRoundSecond, GridSecondLabel, new[] { ("1", "29", "1"), ("30", "59", "30") });
+                    SwitchToGeneralTab(form);
+                }),
+
+            new("XFCT-803", "ไม่ปัดเศษคงที่", "Fixed Second Option",
+                "ข้อมูลจำลองตรวจสอบระบบการปัดเศษคงที่",
+                form =>
+                {
+                    SwitchToFormatTab(form);
+                    SelectRadio(form, IdRadioRoundTime, RadioTimeName);
+                    TickCheckbox(form, IdChkNoRoundSecond, ChkNoRoundSecondName, tick: true);
+                    TickCheckbox(form, IdChkNoRoundMinute, ChkNoRoundMinuteName, tick: true);
+                    SwitchToGeneralTab(form);
+                })
+        };
+
+        // [ขั้นที่ 2] ข้อมูลทดสอบ Validation ตอนเพิ่ม (Add Validation)
+        private static readonly ValidationItem[] Step2_AddValidationCases =
+        {
+            new("TestCase01_MissingCode", "", "ปัดเศษเงิน 50 สตางค์", "Save",
+                new[] { "รหัสรูปแบบการปัดเศษ ไม่สามารถเป็นค่าว่าง" }),
+
+            new("TestCase02_MissingName", "XFCT-001", "", "Save and New",
+                new[] { "ชื่อรูปแบบการปัดเศษ ไม่สามารถเป็นค่าว่าง" }),
+
+            new("TestCase03_MissingBoth", "", "", "Save and New",
+                new[] { "รหัสรูปแบบการปัดเศษ ไม่สามารถเป็นค่าว่าง", "ชื่อรูปแบบการปัดเศษ ไม่สามารถเป็นค่าว่าง" }),
+
+            new("TestCase05_DuplicateCode", "XFCM-801", "ปัดเศษ", "Save and New",
+                new[] { "รหัสรูปแบบการปัดเศษ ห้ามซ้ำ" }),
+
+            new("TestCase06_DuplicateName", "XFCM-804", "ไม่ปัดเศษคงที่", "Save and Close",
+                new[] { "ชื่อรูปแบบการปัดเศษ ห้ามซ้ำ" })
+        };
+
+        // [ขั้นที่ 3] ข้อมูลทดสอบการแก้ไขข้อมูล (Edit Records)
+        private static readonly FractionalEditItem[] Step3_EditCases =
+        {
+            new("TestCase07_EditRow1", "XFCM-801", "XFCM-EDIT1", "แก้ไขระบบปัดเศษเงินรอบที่ 1", "Edited Money Rounding v1",
+                "แก้ไขข้อมูลทดสอบปัดเศษเงิน",
+                form =>
+                {
+                    SwitchToFormatTab(form);
+                    SelectRadio(form, IdRadioRoundMoney, RadioMoneyName);
+                    TickCheckbox(form, IdChkNoRoundMoney, ChkNoRoundMoneyName, tick: true);
+                    SwitchToGeneralTab(form);
+                },
+                "Save", true),
+
+            new("TestCase08_EditRow2", "XFCM-802", "XFCT-EDIT2", "แก้ไขเปิดออปชันเวลาคงที่", "Edited Fixed Time Option",
+                "แก้ไขข้อมูลทดสอบปัดเศษเวลา",
+                form =>
+                {
+                    SwitchToFormatTab(form);
+                    SelectRadio(form, IdRadioRoundTime, RadioTimeName);
+                    TickCheckbox(form, IdChkNoRoundMinute, ChkNoRoundMinuteName, tick: true);
+                    TickCheckbox(form, IdChkNoRoundSecond, ChkNoRoundSecondName, tick: true);
+                    SwitchToGeneralTab(form);
+                },
+                "Save and Close", false)
+        };
+
+        // [ขั้นที่ 4] ข้อมูลทดสอบ Validation ตอนแก้ไข (Edit Validation)
+        private const string EditTargetRow = "XFCT-801";
+        private static readonly ValidationItem[] Step4_EditValidationCases =
+        {
+            new("TestCase09_EditValidation_MissingCode", "", "ปัดเศษเวลาทุก 15 นาที", "Save",
+                new[] { "รหัสรูปแบบการปัดเศษ ไม่สามารถเป็นค่าว่าง" }),
+
+            new("TestCase09_EditValidation_MissingName", "XFCT-801", "", "Save and New",
+                new[] { "ชื่อรูปแบบการปัดเศษ ไม่สามารถเป็นค่าว่าง" }),
+
+            new("TestCase09_EditValidation_MissingBoth", "", "", "Save",
+                new[] { "รหัสรูปแบบการปัดเศษ ไม่สามารถเป็นค่าว่าง", "ชื่อรูปแบบการปัดเศษ ไม่สามารถเป็นค่าว่าง" }),
+
+            new("TestCase09_EditValidation_DuplicateCode", "XFCM-804", "ปัดเศษเวลาทุก 15 นาที", "Save and New",
+                new[] { "รหัสรูปแบบการปัดเศษ ห้ามซ้ำ" }),
+
+            new("TestCase09_EditValidation_DuplicateName", "XFCM-805", "ไม่ปัดเศษคงที่", "Save and Close",
+                new[] { "ชื่อรูปแบบการปัดเศษ ห้ามซ้ำ" })
+        };
+
+        // [ขั้นที่ 5] ข้อมูลทดสอบการลบข้อมูล (Delete Records)
+        private static readonly DeleteItem[] Step5_DeleteCases =
+        {
+            new("XFCT-803", "Yes", true),
+            new("XFCT-802", "No", false)
+        };
+
+
+        // =========================================================================================
+        // หมวดที่ 2: ส่วนที่ขึ้นกับหน้าจอนั้นๆ (Screen-Specific Implementation)
+        // **เมื่อเปลี่ยนไปทำหน้าจออื่น ต้องมาแก้ไขค่าและเมทอดในส่วนนี้ทั้งหมด**
+        // =========================================================================================
+
+        // 2.1 Locator & Mappings ประจำหน้าจอ
+        private const string MenuName = "กำหนดรูปแบบการปัดเศษ";
+        private const string ScreenLogName = "FractionalInfoUC";
         private const string FormId = "FractionalInfoUC";
         private const string FormTitle = "กำหนดรูปแบบการปัดเศษ";
 
         private const string GeneralTabId = "devTabPgGeneral";
+        private const string IdTabHeaderGeneral = "devTabHeaderGeneral";
+        private const string IdTabHeaderFormat = "devTabHeaderFormat";
+        private const string TabFormatName = "กำหนดรูปแบบ";
+        private const string TabGeneralName = "Genaral";
 
-        // ── AutomationId (กำหนดรูปแบบ tab & ฟิลด์ข้อมูล) ──
+        // 2.2 ฟิลด์ Input ประจำหน้าจอ
         private const string IdFractCode = "devTxtFractCode";
         private const string IdFractName = "devTxtFractName";
         private const string IdFractNameEng = "devTxtFractNameEng";
@@ -43,11 +222,6 @@ namespace HRMITestFlaUI.Module.Setup
         private const string IdGridRoundSecond = "devGridCtrlFractSecond";
         private const string IdGridRoundMinute = "devGridCtrlFractMinute";
 
-        // ── Tab Header AutomationId & Display Names ──
-        private const string IdTabHeaderGeneral = "devTabHeaderGeneral";
-        private const string IdTabHeaderFormat = "devTabHeaderFormat";
-        private const string TabFormatName = "กำหนดรูปแบบ";
-        private const string TabGeneralName = "Genaral";
         private const string RadioMoneyName = "กำหนดรูปแบบการปัดเศษเงิน";
         private const string RadioTimeName = "กำหนดรูปแบบการปัดเศษเวลา";
         private const string ChkNoRoundMoneyName = "ไม่ปัดเศษสตางค์ เศษมีค่าคงที่";
@@ -57,170 +231,20 @@ namespace HRMITestFlaUI.Module.Setup
         private const string GridSecondLabel = "รูปแบบการปัดเศษวินาที";
         private const string GridMinuteLabel = "รูปแบบการปัดเศษนาที";
 
-        /* Constructor สำหรับรับค่า MainWindow และ Automation Instance เข้ามาใช้งานภายในคลาส */
-        public FractionalInfoUC(AutomationElement mainWindow, UIA3Automation automation)
-        {
-            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
-            _automation = automation ?? throw new ArgumentNullException(nameof(automation));
-        }
-
-        // ── โครงสร้างข้อมูลจำลอง (Data Model) พร้อม Action สำหรับกำหนดแท็บรูปแบบ ──
-        private record FractionalRecord(
-            string Code, string NameTh, string NameEn, string Remark, Action<Window> ConfigureFormatTab);
-
-        // -------------------------------------------------------------
-        // * Navigation & Search System *
-        // -------------------------------------------------------------
-        /* Method สำหรับค้นหาหน้าจอกำหนดรูปแบบการปัดเศษผ่านแถบค้นหาด้านบน (baritemSearch) */
-        private bool TryOpenFractionalMenu(string stage)
-        {
-            try
-            {
-                var searchBox = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("baritemSearch"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit)), 4000)
-                                ?? throw new Exception("ไม่พบช่องค้นหา baritemSearch");
-
-                WaitUntil(() => { try { searchBox.Focus(); return true; } catch { return false; } }, 1000);
-                string searchKeyword = FormTitle;
-
-                if (searchBox.Patterns.Value.IsSupported)
-                    searchBox.Patterns.Value.Pattern.SetValue(searchKeyword);
-                else
-                    Keyboard.Type(searchKeyword);
-
-                var searchBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("barChkSearch"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Find")), 4000)
-                                ?? throw new Exception("ไม่พบปุ่มค้นหา barChkSearch");
-
-                searchBtn.Click();
-
-                var menuResult = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName(searchKeyword))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 1"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 7")), 4000)
-                                 ?? throw new Exception("ไม่พบผลลัพธ์เมนูจากการค้นหา");
-
-                menuResult.Focus();
-                menuResult.Click();
-                Keyboard.Press(VirtualKeyShort.ENTER);
-
-                // ตรวจสอบสถานะว่าหน้าจอกำหนดรูปแบบการปัดเศษพร้อมทำงานจริง (ปุ่ม New และ DataGrid พร้อมใช้งาน)
-                return WaitForMainWindowReady();
-            }
-            catch (Exception ex)
-            {
-                LogFailureCounted(stage, $"ค้นหาและเปิดหน้าจอไม่สำเร็จ: {ex.Message}");
-                return false;
-            }
-        }
-
-        /* Method ตรวจสอบโดยตรงว่าหน้าต่างหลักพร้อมทำงาน (ไม่ต้องสุ่มหน่วงเวลา) */
-        private bool WaitForMainWindowReady()
-        {
-            return WaitUntil(() =>
-            {
-                var newBtn = _mainWindow.FindFirstDescendant(cf => cf.ByName("New"));
-                var grid = GetMainDataGrid();
-
-                bool isNewBtnReady = newBtn != null && newBtn.Properties.IsEnabled.ValueOrDefault && !newBtn.Properties.IsOffscreen.ValueOrDefault;
-                bool isGridReady = grid != null && !grid.Properties.IsOffscreen.ValueOrDefault;
-
-                return isNewBtnReady && isGridReady;
-            }, TimeoutMs);
-        }
-
-        /* Method ตรวจสอบโดยตรงว่าฟอร์มบันทึก/แก้ไขเปิดขึ้นมาและ Controls ภายในพร้อมรับข้อมูล */
-        private bool WaitForFormReady(Window? form)
-        {
-            if (form == null) return false;
-            return WaitUntil(() =>
-            {
-                if (!form.IsAvailable || form.Properties.IsOffscreen.ValueOrDefault) return false;
-                var codeField = form.FindFirstDescendant(cf => cf.ByAutomationId(IdFractCode));
-                return codeField != null && codeField.Properties.IsEnabled.ValueOrDefault && !codeField.Properties.IsOffscreen.ValueOrDefault;
-            }, TimeoutMs);
-        }
-
-        // -------------------------------------------------------------
-        // * 1. ทดสอบการ New โดยเพิ่มข้อมูล 6 ข้อมูลตาม Test Step *
-        // -------------------------------------------------------------
+        /// <summary>
+        /// ขั้นที่ 1: เปิดหน้าจอและกรอกข้อมูลสร้างใหม่
+        /// </summary>
         public void NavigateToFractionalInfoUC()
         {
-            var records = new[]
-            {
-                new FractionalRecord("XFCM-801", "ปัดทุก 25 สตางค์", "Rounding 25 Satang",
-                    "ข้อมูลจำลองทดสอบปัดเศษเงินแบบสี่ช่วง",
-                    form =>
-                    {
-                        SwitchToFormatTab(form);
-                        SelectRadio(form, IdRadioRoundMoney, RadioMoneyName);
-                        FillGridRows(form, IdGridRoundMoney, GridMoneyLabel, new[] { ("1", "24", "1"), ("25", "49", "25") });
-                        SwitchToGeneralTab(form);
-                    }),
-
-                new FractionalRecord("XFCM-802", "ปัดเศษเงินแบบฟิกซ์พิเศษ", "Custom Fixed Money",
-                    "ข้อมูลจำลองทดสอบการทำงานระบบปัดเศษคงที่",
-                    form =>
-                    {
-                        SwitchToFormatTab(form);
-                        SelectRadio(form, IdRadioRoundMoney, RadioMoneyName);
-                        TickCheckbox(form, IdChkNoRoundMoney, ChkNoRoundMoneyName, tick: true);
-                        SwitchToGeneralTab(form);
-                    }),
-
-                new FractionalRecord("XFCM-803", "ตัดเศษสตางค์ทิ้งทั้งหมด", "Ignore Satang Fraction",
-                    "ข้อมูลจำลองทดสอบกรณีจ่ายเงินแบบตัดเศษทิ้ง",
-                    form =>
-                    {
-                        SwitchToFormatTab(form);
-                        SelectRadio(form, IdRadioRoundMoney, RadioMoneyName);
-                        FillGridRows(form, IdGridRoundMoney, GridMoneyLabel, new[] { ("1", "99", "1") });
-                        SwitchToGeneralTab(form);
-                    }),
-
-                new FractionalRecord("XFCT-801", "ปัดเศษเวลาทุก 15 นาที", "Time Block 15 Mins",
-                    "ข้อมูลจำลองทดสอบปัดช่วงเวลาการทำงานเป็นราย 15 นาที",
-                    form =>
-                    {
-                        SwitchToFormatTab(form);
-                        SelectRadio(form, IdRadioRoundTime, RadioTimeName);
-                        TickCheckbox(form, IdChkNoRoundSecond, ChkNoRoundSecondName, tick: true);
-                        FillGridRows(form, IdGridRoundMinute, GridMinuteLabel, new[] { ("1", "14", "1"), ("15", "29", "15") });
-                        SwitchToGeneralTab(form);
-                    }),
-
-                new FractionalRecord("XFCT-802", "ปัดเศษวินาทีทดสอบระบบ", "Second Fraction Test",
-                    "ข้อมูลจำลองตรวจสอบระบบการปัดเศษในระดับวินาที",
-                    form =>
-                    {
-                        SwitchToFormatTab(form);
-                        SelectRadio(form, IdRadioRoundTime, RadioTimeName);
-                        TickCheckbox(form, IdChkNoRoundMinute, ChkNoRoundMinuteName, tick: true);
-                        FillGridRows(form, IdGridRoundSecond, GridSecondLabel, new[] { ("1", "29", "1"), ("30", "59", "30") });
-                        SwitchToGeneralTab(form);
-                    }),
-
-                new FractionalRecord("XFCT-803", "ไม่ปัดเศษคงที่", "Fixed Second Option",
-                    "ข้อมูลจำลองตรวจสอบระบบการปัดเศษคงที่",
-                    form =>
-                    {
-                        SwitchToFormatTab(form);
-                        SelectRadio(form, IdRadioRoundTime, RadioTimeName);
-                        TickCheckbox(form, IdChkNoRoundSecond, ChkNoRoundSecondName, tick: true);
-                        TickCheckbox(form, IdChkNoRoundMinute, ChkNoRoundMinuteName, tick: true);
-                        SwitchToGeneralTab(form);
-                    }),
-            };
-
             string stageName = "TestCase00_AddFractionalData";
-            TestLogger.LogInfo("FractionalInfoUC", "เริ่มทดสอบหน้าจอ Fractional Info");
+            TestLogger.LogInfo(ScreenLogName, "เริ่มทดสอบหน้าจอ Fractional Info");
 
             if (!TryOpenFractionalMenu(stageName)) return;
 
             Window? form = null;
-
-            for (int i = 0; i < records.Length; i++)
+            for (int i = 0; i < Step1_AddCases.Length; i++)
             {
-                var rec = records[i];
+                var rec = Step1_AddCases[i];
                 string testName = $"{stageName}_{rec.Code}";
 
                 try
@@ -241,7 +265,7 @@ namespace HRMITestFlaUI.Module.Setup
                     }
 
                     string saveButtonName = i == 0 ? "Save"
-                                          : i == records.Length - 1 ? "Save and Close"
+                                          : i == Step1_AddCases.Length - 1 ? "Save and Close"
                                           : "Save and New";
 
                     if (!TrySaveAndHandleDuplicate(form, testName, rec.Code, saveButtonName))
@@ -261,7 +285,6 @@ namespace HRMITestFlaUI.Module.Setup
                     }
                     else if (saveButtonName == "Save and Close")
                     {
-                        // ตรวจสอบโดยตรงจนกว่าฟอร์มจะปิดและหน้าต่างหลักกลับมาพร้อมทำงาน
                         WaitForClosed(() => FindOpenFractionalInfoForm(), 8000);
                         form = null;
                         WaitForMainWindowReady();
@@ -271,7 +294,6 @@ namespace HRMITestFlaUI.Module.Setup
                     else if (saveButtonName == "Save and New")
                     {
                         SwitchToGeneralTab(form);
-                        // เช็คหน้าจอโดยตรงว่าช่องกรอกรหัสถูก Clear เป็นค่าว่างพร้อมป้อนแถวถัดไป
                         WaitUntil(() =>
                         {
                             var txt = form.FindFirstDescendant(cf => cf.ByAutomationId(IdFractCode))?.AsTextBox();
@@ -289,9 +311,9 @@ namespace HRMITestFlaUI.Module.Setup
             }
         }
 
-        // -------------------------------------------------------------
-        // * 2. ทดสอบ แจ้งเตือนต่างๆ เมื่อ New *
-        // -------------------------------------------------------------
+        /// <summary>
+        /// ขั้นที่ 2: รัน Validation ตอนสร้างข้อมูลใหม่
+        /// </summary>
         public void RunAllValidationTests()
         {
             string stageName = "TestCase01-06_Validation";
@@ -301,18 +323,17 @@ namespace HRMITestFlaUI.Module.Setup
                 WaitForFormReady(form);
                 var context = GetGeneralTab(form);
 
-                FillAndSaveThenAssert(context, form, "", "ปัดเศษเงิน 50 สตางค์", "Save",
-                    "TestCase01_MissingCode", "รหัสรูปแบบการปัดเศษ ไม่สามารถเป็นค่าว่าง");
+                // Run เคส 1, 2, 3
+                FillAndSaveThenAssert(context, form, Step2_AddValidationCases[0].Code, Step2_AddValidationCases[0].NameTh, Step2_AddValidationCases[0].SaveBtn,
+                    Step2_AddValidationCases[0].TestCaseId, Step2_AddValidationCases[0].ExpectedErrors);
 
-                FillAndSaveThenAssert(context, form, "XFCT-001", "", "Save and New",
-                    "TestCase02_MissingName", "ชื่อรูปแบบการปัดเศษ ไม่สามารถเป็นค่าว่าง");
+                FillAndSaveThenAssert(context, form, Step2_AddValidationCases[1].Code, Step2_AddValidationCases[1].NameTh, Step2_AddValidationCases[1].SaveBtn,
+                    Step2_AddValidationCases[1].TestCaseId, Step2_AddValidationCases[1].ExpectedErrors);
 
-                FillAndSaveThenAssert(context, form, "", "", "Save and New",
-                    "TestCase03_MissingBoth",
-                    "รหัสรูปแบบการปัดเศษ ไม่สามารถเป็นค่าว่าง",
-                    "ชื่อรูปแบบการปัดเศษ ไม่สามารถเป็นค่าว่าง");
+                FillAndSaveThenAssert(context, form, Step2_AddValidationCases[2].Code, Step2_AddValidationCases[2].NameTh, Step2_AddValidationCases[2].SaveBtn,
+                    Step2_AddValidationCases[2].TestCaseId, Step2_AddValidationCases[2].ExpectedErrors);
 
-                // เคสที่ 4: XFCM-007 ปัดเศษเวลาทดสอบเคส D -> ตารางรูปแบบการปัดเศษสตางค์ว่าง
+                // เคสที่ 4 เฉพาะของหน้านี้: ตารางรูปแบบการปัดเศษสตางค์ว่าง
                 SetTextDirectly(context.FindFirstDescendant(cf => cf.ByAutomationId(IdFractCode)), "XFCM-007");
                 SetTextDirectly(context.FindFirstDescendant(cf => cf.ByAutomationId(IdFractName)), "ปัดเศษเวลาทดสอบเคส D");
                 try
@@ -326,17 +347,15 @@ namespace HRMITestFlaUI.Module.Setup
                 ClickFormButton(form, "Save and New");
                 AssertTaskResultWarning(form, "ปัดเศษสตางค์", "TestCase04_EmptyGrid");
 
-                // เคสที่ 5: รหัสซ้ำ XFCM-801
-                FillAndSaveThenAssert(context, form, "XFCM-801", "ปัดเศษ", "Save and New",
-                    "TestCase05_DuplicateCode", "รหัสรูปแบบการปัดเศษ ห้ามซ้ำ");
+                // Run เคส 5, 6
+                FillAndSaveThenAssert(context, form, Step2_AddValidationCases[3].Code, Step2_AddValidationCases[3].NameTh, Step2_AddValidationCases[3].SaveBtn,
+                    Step2_AddValidationCases[3].TestCaseId, Step2_AddValidationCases[3].ExpectedErrors);
 
-                // เคสที่ 6: ชื่อซ้ำ ไม่ปัดเศษคงที่
-                string testName = "TestCase06_DuplicateName";
-                FillAndSaveThenAssert(context, form, "XFCM-804", "ไม่ปัดเศษคงที่", "Save and Close",
-                    testName, "ชื่อรูปแบบการปัดเศษ ห้ามซ้ำ");
+                string dupNameCase = Step2_AddValidationCases[4].TestCaseId;
+                FillAndSaveThenAssert(context, form, Step2_AddValidationCases[4].Code, Step2_AddValidationCases[4].NameTh, Step2_AddValidationCases[4].SaveBtn,
+                    dupNameCase, Step2_AddValidationCases[4].ExpectedErrors);
 
-                // ลำดับการทดสอบปิดหน้าจอ: Cancel -> Yes/No เพื่อให้ออกจากหน้าจอได้อย่างถูกต้อง
-                RunCloseDialogSequence(form, testName);
+                RunCloseDialogSequence(form, dupNameCase);
             }
             catch (Exception ex)
             {
@@ -344,67 +363,253 @@ namespace HRMITestFlaUI.Module.Setup
             }
         }
 
-        private void RunCloseDialogSequence(Window form, string testNamePrefix)
+        /// <summary>
+        /// ขั้นที่ 3: เลือกแก้ไขรายการในตาราง
+        /// </summary>
+        public void RunEditTests()
         {
-            // 1. กด Close -> Cancel (ฟอร์มต้องไม่ปิด)
-            string subCase = $"{testNamePrefix}_Close_Cancel";
-            ClickCloseAndHandleDialog(form, "Cancel", subCase);
-            AssertFormStillOpen(form, subCase);
-
-            // 2. กด Close -> No (ทดสอบการไม่บันทึก)
-            subCase = $"{testNamePrefix}_Close_No";
-            ClickCloseAndHandleDialog(form, "No", subCase);
-
-            // ตรวจสอบสถานะฟอร์มหลังกด No: ถ้าฟอร์มปิดไปแล้ว ให้บันทึกว่าสำเร็จทันที
-            bool isStillOpen = WaitUntil(() => form.IsAvailable && !form.Properties.IsOffscreen.ValueOrDefault, 1500);
-            if (isStillOpen)
+            foreach (var item in Step3_EditCases)
             {
-                LogSuccessCounted(subCase, "ฟอร์มถูกเปิดอยู่");
-
-                // 3. ถ้าฟอร์มยังคงเปิดอยู่ -> กด Close แล้วกด Yes เพื่อปิดฟอร์มออกจากเคส
-                subCase = $"{testNamePrefix}_Close_Yes";
-                ClickCloseAndHandleDialog(form, "Yes", subCase);
-                AssertFormClosed(form, subCase);
-            }
-            else
-            {
-                LogSuccessCounted(subCase, "ฟอร์มถูกปิดสำเร็จจากการกด No");
+                EditFractionalRecord(item.TestCaseId, item.ExistingCode, item.NewCode, item.NewNameTh,
+                    item.NewNameEn, item.NewRemark, item.ConfigureFormatTab, item.SaveButtonName, item.NeedsExplicitClose);
             }
         }
 
-        // -------------------------------------------------------------
-        // * 3. ทดสอบ Edit *
-        // -------------------------------------------------------------
-        public void RunEditTests()
+        /// <summary>
+        /// ขั้นที่ 4: รัน Validation ตอนแก้ไขข้อมูล
+        /// </summary>
+        public void RunEditValidationTests()
         {
-            // Edit XFCM-801 -> XFCM-EDIT1
-            EditFractionalRecord("TestCase07_EditRow1", existingCode: "XFCM-801",
-                newCode: "XFCM-EDIT1", newNameTh: "แก้ไขระบบปัดเศษเงินรอบที่ 1", newNameEn: "Edited Money Rounding v1",
-                newRemark: "แก้ไขข้อมูลทดสอบปัดเศษเงิน",
-                configureFormatTab: form =>
-                {
-                    SwitchToFormatTab(form);
-                    SelectRadio(form, IdRadioRoundMoney, RadioMoneyName);
-                    TickCheckbox(form, IdChkNoRoundMoney, ChkNoRoundMoneyName, tick: true);
-                    SwitchToGeneralTab(form);
-                },
-                saveButtonName: "Save", needsExplicitClose: true);
+            string baseTestName = "TestCase09_EditValidation";
 
-            // Edit XFCM-802 -> แก้ไขเป็น XFCT-EDIT2 และเปลี่ยนเป็นรูปแบบปัดเศษเวลา
-            EditFractionalRecord("TestCase08_EditRow2", existingCode: "XFCM-802",
-                newCode: "XFCT-EDIT2", newNameTh: "แก้ไขเปิดออปชันเวลาคงที่", newNameEn: "Edited Fixed Time Option",
-                newRemark: "แก้ไขข้อมูลทดสอบปัดเศษเวลา",
-                configureFormatTab: form =>
+            try
+            {
+                WaitForClosed(() => FindOpenFractionalInfoForm());
+                WaitForMainWindowReady();
+                TriggerGridRefresh();
+
+                Window form = ClickRowAndOpenEditForm(EditTargetRow, baseTestName);
+                WaitForFormReady(form);
+                var context = GetGeneralTab(form);
+
+                FillAndSaveThenAssert(context, form, Step4_EditValidationCases[0].Code, Step4_EditValidationCases[0].NameTh, Step4_EditValidationCases[0].SaveBtn,
+                    Step4_EditValidationCases[0].TestCaseId, Step4_EditValidationCases[0].ExpectedErrors);
+
+                FillAndSaveThenAssert(context, form, Step4_EditValidationCases[1].Code, Step4_EditValidationCases[1].NameTh, Step4_EditValidationCases[1].SaveBtn,
+                    Step4_EditValidationCases[1].TestCaseId, Step4_EditValidationCases[1].ExpectedErrors);
+
+                FillAndSaveThenAssert(context, form, Step4_EditValidationCases[2].Code, Step4_EditValidationCases[2].NameTh, Step4_EditValidationCases[2].SaveBtn,
+                    Step4_EditValidationCases[2].TestCaseId, Step4_EditValidationCases[2].ExpectedErrors);
+
+                WaitUntil(() => FindTaskResultPanel(form, 500) == null, 1500);
+
+                FillAndSaveThenAssert(context, form, Step4_EditValidationCases[3].Code, Step4_EditValidationCases[3].NameTh, Step4_EditValidationCases[3].SaveBtn,
+                    Step4_EditValidationCases[3].TestCaseId, Step4_EditValidationCases[3].ExpectedErrors);
+
+                string subCase = Step4_EditValidationCases[4].TestCaseId;
+                FillAndSaveThenAssert(context, form, Step4_EditValidationCases[4].Code, Step4_EditValidationCases[4].NameTh, Step4_EditValidationCases[4].SaveBtn,
+                    subCase, Step4_EditValidationCases[4].ExpectedErrors);
+
+                RunCloseDialogSequence(form, subCase);
+
+                LogSuccessCounted(baseTestName, "รัน Validation Edit ครบทุกเคสแล้ว");
+            }
+            catch (Exception ex)
+            {
+                LogFailureCounted(baseTestName, $"Validation Edit ไม่ผ่านบางเคส: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// ขั้นที่ 5: ทดสอบการลบรายการในตาราง
+        /// </summary>
+        public void RunDeleteTests()
+        {
+            string baseTestName = "TestCase10_Delete";
+
+            WaitForMainWindowReady();
+            TriggerGridRefresh();
+
+            foreach (var testCase in Step5_DeleteCases)
+            {
+                RunDeleteCase(baseTestName, testCase.TargetCode, testCase.DialogBtn, testCase.ExpectDeleted);
+            }
+
+            LogSuccessCounted(baseTestName, "ทดสอบ Delete ครบทุกเคส");
+            TestLogger.LogInfo(ScreenLogName, $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
+        }
+
+        // --- Custom Mapping & Control Logic ประจำหน้าจอนี้ ---
+        private void FillFractionalFields(AutomationElement context, string code, string nameTh, string nameEn, string remark)
+        {
+            SetTextDirectly(context.FindFirstDescendant(cf => cf.ByAutomationId(IdFractCode)), code);
+            SetTextDirectly(context.FindFirstDescendant(cf => cf.ByAutomationId(IdFractName)), nameTh);
+            SetTextDirectly(context.FindFirstDescendant(cf => cf.ByAutomationId(IdFractNameEng)), nameEn);
+            SetTextDirectly(context.FindFirstDescendant(cf => cf.ByAutomationId(IdRemark)), remark);
+        }
+
+        private static void SwitchToFormatTab(Window form)
+        {
+            var tab = Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(IdTabHeaderFormat))
+                               ?? form.FindFirstDescendant(cf => cf.ByName(TabFormatName)), 3000)
+                      ?? throw new Exception($"หาแท็บ '{TabFormatName}' ไม่เจอ");
+            ClickElementByMouse(tab);
+            WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId(IdRadioRoundMoney)) != null, 2500);
+        }
+
+        private static void SwitchToGeneralTab(Window form)
+        {
+            var tab = Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(IdTabHeaderGeneral))
+                               ?? form.FindFirstDescendant(cf => cf.ByName(TabGeneralName)), 3000)
+                      ?? throw new Exception($"หาแท็บ '{TabGeneralName}' ไม่เจอ");
+            ClickElementByMouse(tab);
+            WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId(IdFractCode)) != null, 2500);
+        }
+
+        private static void SelectRadio(Window form, string radioId, string radioName)
+        {
+            var radio = Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(radioId))
+                                  ?? form.FindFirstDescendant(cf => cf.ByName(radioName)), 3000)
+                        ?? throw new Exception($"หา radio '{radioName}' ไม่เจอ");
+            ClickElementByMouse(radio);
+        }
+
+        private static void TickCheckbox(Window form, string checkboxId, string checkboxName, bool tick)
+        {
+            var found = Retry(() =>
+                form.FindFirstDescendant(cf => cf.ByAutomationId(checkboxId))
+                ?? form.FindFirstDescendant(cf => cf.ByName(checkboxName))
+                ?? form.FindFirstDescendant(cf => cf.ByControlType(ControlType.CheckBox).And(cf.ByName(checkboxName))), 3000)
+                ?? throw new Exception($"หา checkbox '{checkboxName}' ไม่เจอ");
+
+            bool CurrentlyTicked()
+            {
+                try
                 {
-                    SwitchToFormatTab(form);
-                    // เดิม กำหนดรูปแบบปัดเศษเงิน -> แก้ไขเป็น กำหนดรูปแบบปัดเศษเวลา
-                    SelectRadio(form, IdRadioRoundTime, RadioTimeName);
-                    // ติ๊กถูก 🗹 ที่ช่อง "ไม่ปัดเศษนาที เศษมีค่าคงที่" และ "ไม่ปัดเศษวินาที เศษมีค่าคงที่" ทั้งสองช่อง
-                    TickCheckbox(form, IdChkNoRoundMinute, ChkNoRoundMinuteName, tick: true);
-                    TickCheckbox(form, IdChkNoRoundSecond, ChkNoRoundSecondName, tick: true);
-                    SwitchToGeneralTab(form);
-                },
-                saveButtonName: "Save and Close", needsExplicitClose: false);
+                    var cb = found.AsCheckBox();
+                    if (cb != null && cb.Patterns.Toggle.IsSupported)
+                    {
+                        return cb.ToggleState == FlaUI.Core.Definitions.ToggleState.On;
+                    }
+                    if (cb?.IsChecked != null) return cb.IsChecked == true;
+                }
+                catch { }
+
+                try
+                {
+                    if (found.Patterns.Value.IsSupported)
+                    {
+                        string? v = found.Patterns.Value.Pattern.Value.Value?.Trim().ToLower();
+                        return v == "1" || v == "true" || v == "checked";
+                    }
+                }
+                catch { }
+
+                return false;
+            }
+
+            if (CurrentlyTicked() == tick) return;
+
+            try
+            {
+                if (found.Patterns.Toggle.IsSupported)
+                {
+                    found.Patterns.Toggle.Pattern.Toggle();
+                    if (CurrentlyTicked() == tick) return;
+                }
+            }
+            catch { }
+
+            var rect = found.BoundingRectangle;
+            if (!rect.IsEmpty)
+            {
+                var boxPoint = new Point((int)(rect.Left + 10), (int)(rect.Top + (rect.Height / 2)));
+                Mouse.Click(boxPoint);
+            }
+            else
+            {
+                ClickElementByMouse(found);
+            }
+
+            if (CurrentlyTicked() != tick)
+            {
+                try
+                {
+                    found.Focus();
+                    Keyboard.Press(VirtualKeyShort.SPACE);
+                    Keyboard.Release(VirtualKeyShort.SPACE);
+                }
+                catch { }
+            }
+        }
+
+        private static void FillGridRows(Window form, string gridId, string gridLabel, (string From, string To, string Value)[] rows)
+        {
+            if (rows.Length > 0 && rows[0].From == "0")
+                throw new Exception($"ตาราง '{gridLabel}' ต้องเริ่มค่า 'ตั้งแต่' ที่ 1 เท่านั้น (ห้ามใช้ 0)");
+
+            var grid = Retry(() =>
+                form.FindFirstDescendant(cf => cf.ByAutomationId(gridId).And(cf.ByClassName("TcxGridSite")))
+                ?? form.FindFirstDescendant(cf => cf.ByAutomationId(gridId).And(cf.ByControlType(ControlType.DataGrid)))
+                ?? form.FindFirstDescendant(cf => cf.ByAutomationId(gridId)), 3000)
+                ?? throw new Exception($"หาตาราง '{gridLabel}' ไม่พบ");
+
+            var rect = grid.BoundingRectangle;
+            var focusPoint = new Point((int)(rect.X + rect.Width / 2), (int)(rect.Y + rect.Height / 2));
+            Mouse.Click(focusPoint);
+
+            for (int i = 0; i < rows.Length; i++)
+            {
+                var (from, to, value) = rows[i];
+                var addButton = grid.FindFirstDescendant(cf => cf.ByName("+"))
+                                ?? grid.FindAllDescendants(cf => cf.ByControlType(ControlType.Button)).FirstOrDefault(b => b.Name == "+");
+
+                if (addButton != null)
+                {
+                    ClickElementByMouse(addButton);
+                }
+                else
+                {
+                    grid.Focus();
+                    Keyboard.Press(VirtualKeyShort.INSERT);
+                }
+
+                grid.Focus();
+                Keyboard.Press(VirtualKeyShort.HOME);
+
+                Keyboard.Type(from);
+                Keyboard.Press(VirtualKeyShort.TAB);
+
+                Keyboard.Type(to);
+                Keyboard.Press(VirtualKeyShort.TAB);
+
+                Keyboard.Type(value);
+                Keyboard.Press(VirtualKeyShort.RETURN);
+            }
+        }
+
+        private Window ClickRowAndOpenEditForm(string fractCodeToFind, string testName)
+        {
+            AutomationElement? row = FindRowInGrid(fractCodeToFind, timeoutMs: 6000);
+            if (row == null)
+            {
+                TriggerGridRefresh();
+                row = FindRowInGrid(fractCodeToFind, timeoutMs: 6000)
+                      ?? throw new Exception($"หาแถวสำหรับ '{fractCodeToFind}' ไม่เจอ");
+            }
+
+            ClickElementByMouse(row);
+
+            var editButton = Retry(() =>
+            {
+                var b = _mainWindow.FindFirstDescendant(cf => cf.ByName("Edit"));
+                return (b != null && b.Properties.IsEnabled.ValueOrDefault) ? b : null;
+            }, 3000) ?? throw new Exception("หาปุ่ม Edit ไม่เจอ");
+
+            ClickElementByMouse(editButton);
+            var form = Retry(FindOpenFractionalInfoForm, 6000) ?? throw new Exception("หาฟอร์ม FractionalInfoUC ไม่เจอ");
+            WaitForFormReady(form);
+            return form;
         }
 
         private void EditFractionalRecord(string testName, string existingCode, string newCode, string newNameTh,
@@ -438,11 +643,7 @@ namespace HRMITestFlaUI.Module.Setup
                 WaitForMainWindowReady();
                 TriggerGridRefresh();
 
-                // ตรวจสอบข้อมูลในตารางหลัก: ตรวจสอบทั้ง newCode, newNameTh หรือ existingCode (รองรับกรณีระบบ Read-Only PK)
-                bool exists = VerifyRecordExistsInGrid(newCode, 3500)
-                              || VerifyRecordExistsInGrid(newNameTh, 3500)
-                              || VerifyRecordExistsInGrid(existingCode, 3500);
-
+                bool exists = VerifyRecordExistsInGrid(newCode, 3500);
                 if (exists)
                     LogSuccessCounted(testName, $"แก้ไข '{existingCode}' เป็น '{newCode}' สำเร็จ (พบในตารางหลัก)");
                 else
@@ -454,72 +655,178 @@ namespace HRMITestFlaUI.Module.Setup
             }
         }
 
-        // -------------------------------------------------------------
-        // * 4. ทดสอบ การแจ้งเตือน Edit *
-        // -------------------------------------------------------------
-        public void RunEditValidationTests()
+        private void DeleteRecordAndVerify(string fractCode, string confirmButton, string testName, bool expectDeleted)
         {
-            string baseTestName = "TestCase09_EditValidation";
+            var row = FindRowInGrid(fractCode, timeoutMs: 8000)
+                      ?? throw new Exception($"หาแถวสำหรับลบ ({fractCode}) ไม่เจอ");
 
-            try
+            WaitUntil(() => { try { row.Focus(); return true; } catch { return false; } }, 1000);
+            ClickElementByMouse(row);
+
+            var deleteButton = Retry(() =>
             {
-                WaitForClosed(() => FindOpenFractionalInfoForm());
-                WaitForMainWindowReady();
-                TriggerGridRefresh();
+                var b = _mainWindow.FindFirstDescendant(cf => cf.ByName("Delete"));
+                return (b != null && b.Properties.IsEnabled.ValueOrDefault) ? b : null;
+            }, 3000) ?? throw new Exception("หาปุ่ม Delete ไม่เจอ");
+            ClickElementByMouse(deleteButton);
 
-                Window form = ClickRowAndOpenEditForm("XFCT-801", baseTestName);
-                WaitForFormReady(form);
-                var context = GetGeneralTab(form);
+            Window? confirmDialog = Retry(() =>
+                _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault()
+                ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByName("คำเตือน"))?.AsWindow(),
+                timeoutMs: 4000) ?? throw new Exception("กด Delete แล้วไม่พบ Pop-up ยืนยัน");
 
-                FillAndSaveThenAssert(context, form, "", "ปัดเศษเวลาทุก 15 นาที", "Save",
-                    $"{baseTestName}_MissingCode", "รหัสรูปแบบการปัดเศษ ไม่สามารถเป็นค่าว่าง");
+            ClickDialogButton(confirmDialog, confirmButton, "ยืนยันการลบ");
+            WaitForClosed(() => confirmDialog);
 
-                FillAndSaveThenAssert(context, form, "XFCT-801", "", "Save and New",
-                    $"{baseTestName}_MissingName", "ชื่อรูปแบบการปัดเศษ ไม่สามารถเป็นค่าว่าง");
+            TriggerGridRefresh();
 
-                FillAndSaveThenAssert(context, form, "", "", "Save",
-                    $"{baseTestName}_MissingBoth",
-                    "รหัสรูปแบบการปัดเศษ ไม่สามารถเป็นค่าว่าง",
-                    "ชื่อรูปแบบการปัดเศษ ไม่สามารถเป็นค่าว่าง");
+            bool stillExistsOnGrid = VerifyRecordExistsInGrid(fractCode, timeoutMs: 3000);
+            bool hasSuccessMessage = FindTaskResultPanel(_mainWindow.AsWindow(), timeoutMs: 500)?
+                .FindAllDescendants()
+                .Any(e => !string.IsNullOrEmpty(e.Name) && e.Name.Contains("Deleted succeeded")) ?? false;
 
-                WaitUntil(() => FindTaskResultPanel(form, 500) == null, 1500);
-
-                FillAndSaveThenAssert(context, form, "XFCM-804", "ปัดเศษเวลาทุก 15 นาที", "Save and New",
-                    $"{baseTestName}_DuplicateCode", "รหัสรูปแบบการปัดเศษ ห้ามซ้ำ");
-
-                string subCase = $"{baseTestName}_DuplicateName";
-                FillAndSaveThenAssert(context, form, "XFCM-805", "ไม่ปัดเศษคงที่", "Save and Close",
-                    subCase, "ชื่อรูปแบบการปัดเศษ ห้ามซ้ำ");
-
-                RunCloseDialogSequence(form, subCase);
-
-                LogSuccessCounted(baseTestName, "รัน Validation Edit ครบทุกเคสแล้ว");
+            if (expectDeleted)
+            {
+                if (stillExistsOnGrid && !hasSuccessMessage)
+                {
+                    string msg = $"'{fractCode}' ลบข้อมูลไม่สำเร็จ";
+                    LogFailureCounted(testName, msg);
+                    throw new Exception(msg);
+                }
+                LogSuccessCounted(testName, $"'{fractCode}' ถูกลบสำเร็จ");
             }
-            catch (Exception ex)
+            else
             {
-                LogFailureCounted(baseTestName, $"Validation Edit ไม่ผ่านบางเคส: {ex.Message}");
+                if (!stillExistsOnGrid)
+                {
+                    string msg = $"'{fractCode}' ลบข้อมูลผิดพลาด";
+                    LogFailureCounted(testName, msg);
+                    throw new Exception(msg);
+                }
+                LogSuccessCounted(testName, $"'{fractCode}' ข้อมูลยังไม่ถูกลบ");
             }
         }
 
-        // -------------------------------------------------------------
-        // * 5. ทดสอบ Delete *
-        // -------------------------------------------------------------
-        public void RunDeleteTests()
+
+        // =========================================================================================
+        // หมวดที่ 3: ส่วนการทำงานกลางที่ตายตัว (Common / Reusable Helpers)
+        // **ใช้งานร่วมกันได้ทุกหน้าจอ ไม่ต้องแก้ไขคำสั่งเมื่อเปลี่ยนหน้า**
+        // =========================================================================================
+
+        private readonly AutomationElement _mainWindow;
+        private readonly UIA3Automation _automation;
+        private int _totalSuccess = 0;
+        private int _totalFail = 0;
+        private const int TimeoutMs = 8000;
+
+        public FractionalInfoUC(AutomationElement mainWindow, UIA3Automation automation)
         {
-            string baseTestName = "TestCase10_Delete";
+            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
+            _automation = automation ?? throw new ArgumentNullException(nameof(automation));
+        }
 
-            WaitForMainWindowReady();
-            TriggerGridRefresh();
+        private bool TryOpenFractionalMenu(string stage)
+        {
+            try
+            {
+                var searchBox = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("baritemSearch"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit)), 4000)
+                                ?? throw new Exception("ไม่พบช่องค้นหา baritemSearch");
 
-            RunDeleteCase(baseTestName, fractCode: "XFCT-803", confirmButton: "Yes", expectDeleted: true);
+                WaitUntil(() => { try { searchBox.Focus(); return true; } catch { return false; } }, 1000);
+                string searchKeyword = FormTitle;
 
-            // ทดสอบลบเคส No: เช็คการมีอยู่ของแถวก่อนคลิก
-            string targetNoDelete = VerifyRecordExistsInGrid("XFCT-802", 2000) ? "XFCT-802" : "XFCT-EDIT2";
-            RunDeleteCase(baseTestName, fractCode: targetNoDelete, confirmButton: "No", expectDeleted: false);
+                if (searchBox.Patterns.Value.IsSupported)
+                    searchBox.Patterns.Value.Pattern.SetValue(searchKeyword);
+                else
+                    Keyboard.Type(searchKeyword);
 
-            LogSuccessCounted(baseTestName, "ทดสอบ Delete ครบทุกเคส");
-            TestLogger.LogInfo("FractionalInfoUC",
-                $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
+                var searchBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("barChkSearch"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Find")), 4000)
+                                ?? throw new Exception("ไม่พบปุ่มค้นหา barChkSearch");
+
+                searchBtn.Click();
+
+                var menuResult = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName(searchKeyword))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 1"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 7")), 4000)
+                                 ?? throw new Exception("ไม่พบผลลัพธ์เมนูจากการค้นหา");
+
+                menuResult.Focus();
+                menuResult.Click();
+                Keyboard.Press(VirtualKeyShort.ENTER);
+
+                return WaitForMainWindowReady();
+            }
+            catch (Exception ex)
+            {
+                LogFailureCounted(stage, $"ค้นหาและเปิดหน้าจอไม่สำเร็จ: {ex.Message}");
+                return false;
+            }
+        }
+
+        private bool WaitForMainWindowReady()
+        {
+            return WaitUntil(() =>
+            {
+                var newBtn = _mainWindow.FindFirstDescendant(cf => cf.ByName("New"));
+                var grid = GetMainDataGrid();
+
+                bool isNewBtnReady = newBtn != null && newBtn.Properties.IsEnabled.ValueOrDefault && !newBtn.Properties.IsOffscreen.ValueOrDefault;
+                bool isGridReady = grid != null && !grid.Properties.IsOffscreen.ValueOrDefault;
+
+                return isNewBtnReady && isGridReady;
+            }, TimeoutMs);
+        }
+
+        private bool WaitForFormReady(Window? form)
+        {
+            if (form == null) return false;
+            return WaitUntil(() =>
+            {
+                if (!form.IsAvailable || form.Properties.IsOffscreen.ValueOrDefault) return false;
+                var codeField = form.FindFirstDescendant(cf => cf.ByAutomationId(IdFractCode));
+                return codeField != null && codeField.Properties.IsEnabled.ValueOrDefault && !codeField.Properties.IsOffscreen.ValueOrDefault;
+            }, TimeoutMs);
+        }
+
+        private Window GetOrOpenFractionalInfoForm() =>
+            Retry(FindOpenFractionalInfoForm, 1500) ?? OpenFractionalInfoForm();
+
+        private Window OpenFractionalInfoForm()
+        {
+            CloseAnyOpenModalForm();
+            var newBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName("New")), 3000)
+                         ?? throw new Exception("หาปุ่ม New ไม่เจอ");
+            ClickElementByMouse(newBtn);
+            var form = Retry(FindOpenFractionalInfoForm, 8000) ?? throw new Exception("หาฟอร์ม FractionalInfoUC ไม่เจอ");
+            WaitForFormReady(form);
+            return form;
+        }
+
+        private Window? FindOpenFractionalInfoForm() =>
+            _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault(w => w.AutomationId == FormId || w.Name.Contains(FormTitle))
+            ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByAutomationId(FormId).Or(cf.ByName(FormTitle)))?.AsWindow();
+
+        private AutomationElement GetGeneralTab(Window form) =>
+            Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(GeneralTabId)), 2000) ?? form;
+
+        private void RunCloseDialogSequence(Window form, string testNamePrefix)
+        {
+            // 1. ทดสอบกด Close -> กด Yes (คาดหวัง: หน้าต่างไม่ปิด)
+            string subCase = $"{testNamePrefix}_Close_Yes";
+            ClickCloseAndHandleDialog(form, "Yes", subCase);
+            AssertFormStillOpen(form, subCase);
+
+            // 2. ทดสอบกด Close -> กด Cancel (คาดหวัง: หน้าต่างไม่ปิด)
+            subCase = $"{testNamePrefix}_Close_Cancel";
+            ClickCloseAndHandleDialog(form, "Cancel", subCase);
+            AssertFormStillOpen(form, subCase);
+
+            // 3. ทดสอบกด Close -> กด No (คาดหวัง: หน้าต่างปิดลง)
+            subCase = $"{testNamePrefix}_Close_No";
+            ClickCloseAndHandleDialog(form, "No", subCase);
+            AssertFormClosed(form, subCase);
         }
 
         private void RunDeleteCase(string baseTestName, string fractCode, string confirmButton, bool expectDeleted)
@@ -534,10 +841,6 @@ namespace HRMITestFlaUI.Module.Setup
                 LogFailureCounted(testName, $"ลบ '{fractCode}' ไม่สำเร็จ: {ex.Message}");
             }
         }
-
-        // -------------------------------------------------------------
-        // * Shared Test-flow & UI Helpers *
-        // -------------------------------------------------------------
 
         private bool TrySaveAndHandleDuplicate(Window form, string testName, string fractCode, string saveButtonName)
         {
@@ -620,17 +923,6 @@ namespace HRMITestFlaUI.Module.Setup
             ClickElementByMouse(button);
         }
 
-        private void FillFractionalFields(AutomationElement context, string code, string nameTh, string nameEn, string remark)
-        {
-            SetTextDirectly(context.FindFirstDescendant(cf => cf.ByAutomationId(IdFractCode)), code);
-            SetTextDirectly(context.FindFirstDescendant(cf => cf.ByAutomationId(IdFractName)), nameTh);
-            SetTextDirectly(context.FindFirstDescendant(cf => cf.ByAutomationId(IdFractNameEng)), nameEn);
-            SetTextDirectly(context.FindFirstDescendant(cf => cf.ByAutomationId(IdRemark)), remark);
-        }
-
-        private AutomationElement GetGeneralTab(Window form) =>
-            Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(GeneralTabId)), 2000) ?? form;
-
         private string? TryDetectDuplicateWarning(Window form)
         {
             var taskResultPanel = FindTaskResultPanel(form, timeoutMs: 1500);
@@ -702,19 +994,15 @@ namespace HRMITestFlaUI.Module.Setup
                 ClickElementByMouse(dataGrid);
             }
 
-            // ค้นหารอบที่ 1 ในหน้าจอปัจจุบัน
             var found = Retry(() => FindElementMatchingValue(value), 1500);
             if (found != null) return found;
 
-            // เลื่อนขึ้นไปด้านบนสุด (Home) แล้วลองค้นหาใหม่
             try { Keyboard.Press(VirtualKeyShort.HOME); } catch { }
             found = Retry(() => FindElementMatchingValue(value), 1200);
             if (found != null) return found;
 
-            // Refresh ตาราง
             TriggerGridRefresh();
 
-            // เลื่อนลงไปด้านล่างทีละสเต็ปเพื่อบังคับให้ DevExpress Grid โหลด Virtual Rows
             try
             {
                 if (dataGrid != null)
@@ -722,7 +1010,7 @@ namespace HRMITestFlaUI.Module.Setup
                     dataGrid.Focus();
                     for (int step = 0; step < 5; step++)
                     {
-                        Keyboard.Press(VirtualKeyShort.NEXT); // Page Down
+                        Keyboard.Press(VirtualKeyShort.NEXT);
                         found = Retry(() => FindElementMatchingValue(value), 800);
                         if (found != null) return found;
                     }
@@ -730,7 +1018,6 @@ namespace HRMITestFlaUI.Module.Setup
                     found = Retry(() => FindElementMatchingValue(value), 1200);
                     if (found != null) return found;
 
-                    // เลื่อนกลับไป Home
                     Keyboard.Press(VirtualKeyShort.HOME);
                 }
             }
@@ -758,244 +1045,6 @@ namespace HRMITestFlaUI.Module.Setup
                 catch { }
             }
             return null;
-        }
-
-        private Window GetOrOpenFractionalInfoForm() =>
-            Retry(FindOpenFractionalInfoForm, 1500) ?? OpenFractionalInfoForm();
-
-        private Window OpenFractionalInfoForm()
-        {
-            CloseAnyOpenModalForm();
-            var newBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName("New")), 3000)
-                         ?? throw new Exception("หาปุ่ม New ไม่เจอ");
-            ClickElementByMouse(newBtn);
-            var form = Retry(FindOpenFractionalInfoForm, 8000) ?? throw new Exception("หาฟอร์ม FractionalInfoUC ไม่เจอ");
-            WaitForFormReady(form);
-            return form;
-        }
-
-        private Window? FindOpenFractionalInfoForm() =>
-            _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault(w => w.AutomationId == FormId || w.Name.Contains(FormTitle))
-            ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByAutomationId(FormId).Or(cf.ByName(FormTitle)))?.AsWindow();
-
-        private Window ClickRowAndOpenEditForm(string fractCodeToFind, string testName)
-        {
-            AutomationElement? row = FindRowInGrid(fractCodeToFind, timeoutMs: 6000);
-            if (row == null)
-            {
-                TriggerGridRefresh();
-                row = FindRowInGrid(fractCodeToFind, timeoutMs: 6000)
-                      ?? throw new Exception($"หาแถวสำหรับ '{fractCodeToFind}' ไม่เจอ");
-            }
-
-            ClickElementByMouse(row);
-
-            var editButton = Retry(() =>
-            {
-                var b = _mainWindow.FindFirstDescendant(cf => cf.ByName("Edit"));
-                return (b != null && b.Properties.IsEnabled.ValueOrDefault) ? b : null;
-            }, 3000) ?? throw new Exception("หาปุ่ม Edit ไม่เจอ");
-
-            ClickElementByMouse(editButton);
-            var form = Retry(FindOpenFractionalInfoForm, 6000) ?? throw new Exception("หาฟอร์ม FractionalInfoUC ไม่เจอ");
-            WaitForFormReady(form);
-            return form;
-        }
-
-        private void DeleteRecordAndVerify(string fractCode, string confirmButton, string testName, bool expectDeleted)
-        {
-            var row = FindRowInGrid(fractCode, timeoutMs: 8000)
-                      ?? throw new Exception($"หาแถวสำหรับลบ ({fractCode}) ไม่เจอ");
-
-            WaitUntil(() => { try { row.Focus(); return true; } catch { return false; } }, 1000);
-            ClickElementByMouse(row);
-
-            var deleteButton = Retry(() =>
-            {
-                var b = _mainWindow.FindFirstDescendant(cf => cf.ByName("Delete"));
-                return (b != null && b.Properties.IsEnabled.ValueOrDefault) ? b : null;
-            }, 3000) ?? throw new Exception("หาปุ่ม Delete ไม่เจอ");
-            ClickElementByMouse(deleteButton);
-
-            Window? confirmDialog = Retry(() =>
-                _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault()
-                ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByName("คำเตือน"))?.AsWindow(),
-                timeoutMs: 4000) ?? throw new Exception("กด Delete แล้วไม่พบ Pop-up ยืนยัน");
-
-            ClickDialogButton(confirmDialog, confirmButton, "ยืนยันการลบ");
-            WaitForClosed(() => confirmDialog);
-
-            TriggerGridRefresh();
-
-            bool stillExistsOnGrid = VerifyRecordExistsInGrid(fractCode, timeoutMs: 3000);
-            bool hasSuccessMessage = FindTaskResultPanel(_mainWindow.AsWindow(), timeoutMs: 500)?
-                .FindAllDescendants()
-                .Any(e => !string.IsNullOrEmpty(e.Name) && e.Name.Contains("Deleted succeeded")) ?? false;
-
-            if (expectDeleted)
-            {
-                if (stillExistsOnGrid && !hasSuccessMessage)
-                {
-                    string msg = $"'{fractCode}' ลบข้อมูลไม่สำเร็จ";
-                    LogFailureCounted(testName, msg);
-                    throw new Exception(msg);
-                }
-                LogSuccessCounted(testName, $"'{fractCode}' ถูกลบสำเร็จ");
-            }
-            else
-            {
-                if (!stillExistsOnGrid)
-                {
-                    string msg = $"'{fractCode}' ลบข้อมูลผิดพลาด";
-                    LogFailureCounted(testName, msg);
-                    throw new Exception(msg);
-                }
-                LogSuccessCounted(testName, $"'{fractCode}' ข้อมูลยังไม่ถูกลบ");
-            }
-        }
-
-        private void SwitchToFormatTab(Window form)
-        {
-            var tab = Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(IdTabHeaderFormat))
-                               ?? form.FindFirstDescendant(cf => cf.ByName(TabFormatName)), 3000)
-                      ?? throw new Exception($"หาแท็บ '{TabFormatName}' ไม่เจอ");
-            ClickElementByMouse(tab);
-            WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId(IdRadioRoundMoney)) != null, 2500);
-        }
-
-        private void SwitchToGeneralTab(Window form)
-        {
-            var tab = Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(IdTabHeaderGeneral))
-                               ?? form.FindFirstDescendant(cf => cf.ByName(TabGeneralName)), 3000)
-                      ?? throw new Exception($"หาแท็บ '{TabGeneralName}' ไม่เจอ");
-            ClickElementByMouse(tab);
-            WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId(IdFractCode)) != null, 2500);
-        }
-
-        private void SelectRadio(Window form, string radioId, string radioName)
-        {
-            var radio = Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(radioId))
-                                  ?? form.FindFirstDescendant(cf => cf.ByName(radioName)), 3000)
-                        ?? throw new Exception($"หา radio '{radioName}' ไม่เจอ");
-            ClickElementByMouse(radio);
-        }
-
-        private void TickCheckbox(Window form, string checkboxId, string checkboxName, bool tick)
-        {
-            // ค้นหา Checkbox โดยค้นหาทั้งจาก AutomationId, ชื่อ Name และ ClassName/Control type
-            var found = Retry(() =>
-                form.FindFirstDescendant(cf => cf.ByAutomationId(checkboxId))
-                ?? form.FindFirstDescendant(cf => cf.ByName(checkboxName))
-                ?? form.FindFirstDescendant(cf => cf.ByControlType(ControlType.CheckBox).And(cf.ByName(checkboxName))), 3000)
-                ?? throw new Exception($"หา checkbox '{checkboxName}' ไม่เจอ");
-
-            bool CurrentlyTicked()
-            {
-                try
-                {
-                    var cb = found.AsCheckBox();
-                    if (cb != null && cb.Patterns.Toggle.IsSupported)
-                    {
-                        return cb.ToggleState == FlaUI.Core.Definitions.ToggleState.On;
-                    }
-                    if (cb?.IsChecked != null) return cb.IsChecked == true;
-                }
-                catch { }
-
-                try
-                {
-                    if (found.Patterns.Value.IsSupported)
-                    {
-                        string? v = found.Patterns.Value.Pattern.Value.Value?.Trim().ToLower();
-                        return v == "1" || v == "true" || v == "checked";
-                    }
-                }
-                catch { }
-
-                return false;
-            }
-
-            if (CurrentlyTicked() == tick) return;
-
-            // 1. ลองใช้ TogglePattern สลับสถานะตรงๆ โดยไม่พึ่งพิกัดเมาส์
-            try
-            {
-                if (found.Patterns.Toggle.IsSupported)
-                {
-                    found.Patterns.Toggle.Pattern.Toggle();
-                    if (CurrentlyTicked() == tick) return;
-                }
-            }
-            catch { }
-
-            // 2. คลิกเจาะจงที่ตัวกล่อง Checkbox ฝั่งซ้าย (เพื่อเลี่ยงการคลิกโดนข้อความ Label ว่างๆ)
-            var rect = found.BoundingRectangle;
-            if (!rect.IsEmpty)
-            {
-                var boxPoint = new Point((int)(rect.Left + 10), (int)(rect.Top + (rect.Height / 2)));
-                Mouse.Click(boxPoint);
-            }
-            else
-            {
-                ClickElementByMouse(found);
-            }
-
-            // 3. ถ้าสถานะยังไม่เปลี่ยน ให้ส่ง Spacebar ซ้ำ
-            if (CurrentlyTicked() != tick)
-            {
-                try
-                {
-                    found.Focus();
-                    Keyboard.Press(VirtualKeyShort.SPACE);
-                    Keyboard.Release(VirtualKeyShort.SPACE);
-                }
-                catch { }
-            }
-        }
-
-        private void FillGridRows(Window form, string gridId, string gridLabel, (string From, string To, string Value)[] rows)
-        {
-            if (rows.Length > 0 && rows[0].From == "0")
-                throw new Exception($"ตาราง '{gridLabel}' ต้องเริ่มค่า 'ตั้งแต่' ที่ 1 เท่านั้น (ห้ามใช้ 0)");
-
-            var grid = Retry(() =>
-                form.FindFirstDescendant(cf => cf.ByAutomationId(gridId).And(cf.ByClassName("TcxGridSite")))
-                ?? form.FindFirstDescendant(cf => cf.ByAutomationId(gridId).And(cf.ByControlType(ControlType.DataGrid)))
-                ?? form.FindFirstDescendant(cf => cf.ByAutomationId(gridId)), 3000)
-                ?? throw new Exception($"หาตาราง '{gridLabel}' ไม่พบ");
-
-            var rect = grid.BoundingRectangle;
-            var focusPoint = new Point((int)(rect.X + rect.Width / 2), (int)(rect.Y + rect.Height / 2));
-            Mouse.Click(focusPoint);
-
-            for (int i = 0; i < rows.Length; i++)
-            {
-                var (from, to, value) = rows[i];
-                var addButton = grid.FindFirstDescendant(cf => cf.ByName("+"))
-                                ?? grid.FindAllDescendants(cf => cf.ByControlType(ControlType.Button)).FirstOrDefault(b => b.Name == "+");
-
-                if (addButton != null)
-                {
-                    ClickElementByMouse(addButton);
-                }
-                else
-                {
-                    grid.Focus();
-                    Keyboard.Press(VirtualKeyShort.INSERT);
-                }
-
-                grid.Focus();
-                Keyboard.Press(VirtualKeyShort.HOME);
-
-                Keyboard.Type(from);
-                Keyboard.Press(VirtualKeyShort.TAB);
-
-                Keyboard.Type(to);
-                Keyboard.Press(VirtualKeyShort.TAB);
-
-                Keyboard.Type(value);
-                Keyboard.Press(VirtualKeyShort.RETURN);
-            }
         }
 
         private void DismissLingeringDialog()

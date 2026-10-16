@@ -9,46 +9,27 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
-using System.Threading;
 
 namespace HRMITestFlaUI.Pages.Setup
 {
     public class CalendarInfoUC
     {
-        // ── ตัวแปรสำหรับเก็บออบเจ็กต์หน้าต่างหลัก, ระบบ Automation และตัวนับผลการทดสอบ (Success/Fail) ──
-        private readonly AutomationElement _mainWindow;
-        private readonly UIA3Automation _automation;
+        // =========================================================================================
+        // หมวดที่ 1: ข้อมูลการทดสอบทั้ง 5 ขั้น (Test Data)
+        // =========================================================================================
 
-        private int _totalSuccess = 0;
-        private int _totalFail = 0;
-
-        // ── ค่าคงที่สำหรับการตั้งค่า Timeout และข้อมูลการระบุตัวตนของฟอร์ม ──
-        private const int TimeoutMs = 6000;
-        private const string FormId = "CalendarInfoUC";
-        private const string FormTitle = "กำหนดปฏิทินบริษัท";
-
-        // ── ค่าคงที่ Automation ID และชื่อของคอนโทรลบนหน้าจอ ──
-        private const string IdTabHeaderGeneral = "devTabPgGeneral";
-        private const string IdTabHeaderCalendar = "devTabPgCalendar";
-        private const string TabGeneralName = "General";
-        private const string TabCalendarName = "ปฏิทินทำงาน";
-
-        private const string IdCalendarCode = "devTxtCalendarCode";
-        private const string IdCalendarName = "devtxtCalendarName";
-        private const string IdCalendarNameAlt = "devTxtCalendarName";
-        private const string IdCalendarNameEng = "devTxtCalendarNameEng";
-        private const string IdCalendarRemark = "devMemoCalendarRemark";
-        private const string IdBtnWeekend = "devBtnWeekend";
-        private const string IdChkSelectAllHolidays = "devChkSelectAllHolidays";
-
-        /* Constructor สำหรับรับค่า MainWindow และ Automation Instance เข้ามาใช้งานภายในคลาส */
-        public CalendarInfoUC(AutomationElement mainWindow, UIA3Automation automation)
+        // --- Data Records สำหรับใช้งานในแต่ละขั้นตอน ---
+        public sealed class DaysSelection
         {
-            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
-            _automation = automation ?? throw new ArgumentNullException(nameof(automation));
+            public bool Mon { get; set; } = true;
+            public bool Tue { get; set; } = true;
+            public bool Wed { get; set; } = true;
+            public bool Thu { get; set; } = true;
+            public bool Fri { get; set; } = true;
+            public bool Sat { get; set; } = true;
+            public bool Sun { get; set; } = true;
         }
 
-        // ── โครงสร้างข้อมูลจำลอง (Data Models) สำหรับใช้งานในแบบทดสอบ ──
         private sealed record GroupScheduleConfig(
             string DayType,
             string Title,
@@ -68,69 +49,505 @@ namespace HRMITestFlaUI.Pages.Setup
             List<GroupScheduleConfig> Schedules,
             string SaveAction);
 
-        public sealed class DaysSelection
+        private sealed record ValidationItem(
+            string TestCaseId,
+            string Code,
+            string NameTh,
+            string SaveBtn,
+            int Progress,
+            string ProgressMsg,
+            string[] ExpectedErrors);
+
+        private sealed record CalendarEditItem(
+            string TestCaseId,
+            string ExistingCode,
+            string NewCode,
+            string NewNameTh,
+            string NewNameEn,
+            string SaveButtonName,
+            bool NeedsExplicitClose,
+            int Progress,
+            string ProgressMsg);
+
+        private sealed record DeleteItem(
+            string TargetCode,
+            string DialogBtn,
+            bool ExpectDeleted,
+            int Progress,
+            string ProgressMsg);
+
+        // [ขั้นที่ 1] ข้อมูลทดสอบการสร้างใหม่ (Add / Navigate)
+        private static readonly CalendarRecord[] Step1_AddCases =
         {
-            public bool Mon { get; set; } = true;
-            public bool Tue { get; set; } = true;
-            public bool Wed { get; set; } = true;
-            public bool Thu { get; set; } = true;
-            public bool Fri { get; set; } = true;
-            public bool Sat { get; set; } = true;
-            public bool Sun { get; set; } = true;
+            new(
+                "CAL-TEST-01", "หยุดทุกวันอาทิตย์", "Day off every Sunday", "หยุดวันอาทิตย์",
+                new List<GroupScheduleConfig>
+                {
+                    new(
+                        "วันหยุด", "วันหยุด", "วันหยุด", "1/1/2569", "31/12/2569",
+                        2, "1",
+                        new DaysSelection { Mon = false, Tue = false, Wed = false, Thu = false, Fri = false, Sat = false, Sun = true },
+                        true
+                    )
+                },
+                "Save"),
+
+            new(
+                "CAL-TEST-02", "หยุุดทุกวันเสาร์", "Day off every Saturday", "หยุดวันเสาร์",
+                new List<GroupScheduleConfig>
+                {
+                    new(
+                        "วันหยุด", "วันหยุด", "วันหยุด", "1/1/2569", "31/12/2569",
+                        2, "1",
+                        new DaysSelection { Mon = false, Tue = false, Wed = false, Thu = false, Fri = false, Sat = true, Sun = false },
+                        true
+                    )
+                },
+                "Save and New"),
+
+            new(
+                "CAL-TEST-03", "ทำงานวัน จันทร์-ศุกร์", "Working days: Monday - Friday", "ทำงานวัน จันทร์-ศุกร์",
+                new List<GroupScheduleConfig>
+                {
+                    new(
+                        "วันทำงาน", "วันทำงาน", "วันทำงาน", "1/1/2569", "31/12/2569",
+                        2, "5",
+                        new DaysSelection { Mon = true, Tue = true, Wed = true, Thu = true, Fri = true, Sat = false, Sun = false },
+                        true
+                    )
+                },
+                "Save and New"),
+
+            new(
+                "CAL-TEST-04", "วันหยุดประจำปี", "Company Holidays", "หยุดประจำปี",
+                new List<GroupScheduleConfig>
+                {
+                    new(
+                        "วันหยุดประจำปี", "วันหยุดประจำปี", "วันหยุดประจำปี", "1/1/2569", "31/12/2569",
+                        3, "28",
+                        null,
+                        true
+                    )
+                },
+                "Save and New"),
+
+            new(
+                "CAL-TEST-05", "หยุุดทุกวันจันทร์", "Day off every Monday", "หยุดวันจันทร์",
+                new List<GroupScheduleConfig>
+                {
+                    new(
+                        "วันหยุด", "วันหยุด", "วันหยุด", "1/1/2569", "31/12/2569",
+                        2, "1",
+                        new DaysSelection { Mon = true, Tue = false, Wed = false, Thu = false, Fri = false, Sat = false, Sun = false },
+                        true
+                    )
+                },
+                "Save and New"),
+
+            new(
+                "CAL-TEST-06", "ปี 2569", "twenty-five sixty-nine", "ปฏิทินประจำปี 2569",
+                new List<GroupScheduleConfig>
+                {
+                    new(
+                        "วันทำงาน", "ทำงานปกติ", "ทำงานปกติ", "1/1/2569", "31/12/2569",
+                        2, "1",
+                        new DaysSelection { Mon = true, Tue = true, Wed = true, Thu = true, Fri = true, Sat = false, Sun = false },
+                        true
+                    ),
+                    new(
+                        "วันหยุด", "หยุด", "หยุด", "1/1/2569", "31/12/2569",
+                        2, "1",
+                        new DaysSelection { Mon = false, Tue = false, Wed = false, Thu = false, Fri = false, Sat = true, Sun = true },
+                        true
+                    )
+                },
+                "Save and Close"),
+
+            new(
+                "CAL-TEST-07", "ปี 2570", "twenty-five seventy", "ปฏิทินประจำปี 2570",
+                new List<GroupScheduleConfig>
+                {
+                    new(
+                        "วันทำงาน", "ทำงานปกติ", "ทำงานปกติ", "1/1/2570", "31/12/2570",
+                        2, "1",
+                        new DaysSelection { Mon = true, Tue = true, Wed = true, Thu = true, Fri = true, Sat = false, Sun = false },
+                        true
+                    ),
+                    new(
+                        "วันหยุด", "หยุด", "หยุด", "1/1/2570", "31/12/2570",
+                        2, "1",
+                        new DaysSelection { Mon = false, Tue = false, Wed = false, Thu = false, Fri = false, Sat = true, Sun = true },
+                        true
+                    )
+                },
+                "Save and Close")
+        };
+
+        // [ขั้นที่ 2] ข้อมูลทดสอบ Validation ตอนเพิ่ม (Add Validation)
+        private static readonly ValidationItem[] Step2_AddValidationCases =
+        {
+            new("TestCase01_MissingCode", "", "วันหยุด", "Save", 33,
+                "Validation 1/8: Missing Code & Details...",
+                new[] { "รหัสปฏิทิน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล", "จะต้องกำหนดข้อมูลปฏิทินอย่างน้อย 1 รายการ" }),
+
+            new("TestCase02_MissingName", "CAL-TEST-08", "", "Save and New", 36,
+                "Validation 2/8: Missing Name (CAL-TEST-08)...",
+                new[] { "ชื่อปฏิทิน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล", "จะต้องกำหนดข้อมูลปฏิทินอย่างน้อย 1 รายการ" }),
+
+            new("TestCase03_MissingBoth", "", "", "Save and New", 39,
+                "Validation 3/8: Missing Both Code & Name...",
+                new[] { "รหัสปฏิทิน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล", "ชื่อปฏิทิน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล", "จะต้องกำหนดข้อมูลปฏิทินอย่างน้อย 1 รายการ" }),
+
+            new("TestCase04_MissingCalendarDetails", "CAL-TEST-08", "วันหยุดทดสอบ", "Save and New", 42,
+                "Validation 4/8: Missing Calendar Details...",
+                new[] { "จะต้องกำหนดข้อมูลปฏิทินอย่างน้อย 1 รายการ" }),
+
+            new("TestCase05_DuplicateCodeAndName", "CAL-TEST-07", "ปี 2570", "Save and New", 45,
+                "Validation 5/8: Duplicate Code & Name Check...",
+                new[] { "รหัสปฏิทิน ห้ามซ้ำ กรุณาป้อนข้อมูล", "ชื่อปฏิทิน ห้ามซ้ำ กรุณาป้อนข้อมูล" })
+        };
+
+        // [ขั้นที่ 3] ข้อมูลทดสอบการแก้ไขข้อมูล (Edit Records)
+        private static readonly CalendarEditItem[] Step3_EditCases =
+        {
+            new(
+                "TestCase06_EditRow1",
+                "CAL-TEST-01", "CAL001",
+                "หยุดวันอาทิตย์", "Sunday Off",
+                "Save",
+                true,
+                55,
+                "Editing Row 1 (CAL-TEST-01 -> CAL001)..."
+                ),
+            new(
+                "TestCase07_EditRow2",
+                "CAL-TEST-02",
+                "CAL002",
+                "หยุดวันเสาร์",
+                "Saturday Off",
+                "Save and Close",
+                false,
+                60,
+                "Editing Row 2 (CAL-TEST-02 -> CAL002)..."
+                )
+        };
+
+        // [ขั้นที่ 4] ข้อมูลทดสอบ Validation ตอนแก้ไข (Edit Validation)
+        private const string EditTargetRow = "CAL002";
+        private static readonly ValidationItem[] Step4_EditValidationCases =
+        {
+            new("TestCase08_EditValidation_MissingCode", "", "หยุดวันอาทิตย์", "Save", 68,
+                "Edit Validation 1/7: Missing Code...",
+                new[] { "รหัสปฏิทิน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล" }),
+
+            new("TestCase08_EditValidation_MissingName", "CAL002", "", "Save and New", 70,
+                "Edit Validation 2/7: Missing Name...",
+                new[] { "ชื่อปฏิทิน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล" }),
+
+            new("TestCase08_EditValidation_MissingBoth", "", "", "Save", 72,
+                "Edit Validation 3/7: Missing Both...",
+                new[] { "รหัสปฏิทิน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล", "ชื่อปฏิทิน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล" }),
+
+            new("TestCase08_EditValidation_DuplicateCodeAndName", "CAL-TEST-03", "ทำงานวัน จันทร์-ศุกร์", "Save and New", 74,
+                "Edit Validation 4/7: Duplicate Code & Name...",
+                new[] { "รหัสปฏิทิน ห้ามซ้ำ กรุณาป้อนข้อมูล", "ชื่อปฏิทิน ห้ามซ้ำ กรุณาป้อนข้อมูล" })
+        };
+
+        // [ขั้นที่ 5] ข้อมูลทดสอบการลบข้อมูล (Delete Records)
+        private static readonly DeleteItem[] Step5_DeleteCases =
+        {
+            new("CAL-TEST-05", "Yes", true, 80, "Testing Delete (CAL-TEST-05 - Yes Confirm)..."),
+            new("CAL001", "No", false, 83, "Testing Delete (CAL001 First Row - No Action)...")
+        };
+
+
+        // =========================================================================================
+        // หมวดที่ 2: ส่วนที่ขึ้นกับหน้าจอนั้นๆ (Screen-Specific Implementation)
+        // **เมื่อเปลี่ยนไปทำหน้าจออื่น ต้องมาแก้ไขค่าและเมทอดในส่วนนี้ทั้งหมด**
+        // =========================================================================================
+
+        // 2.1 Locator & Mappings ประจำหน้าจอ
+        private const string MenuName = "กำหนดปฏิทินบริษัท";
+        private const string ScreenLogName = "CalendarInfoUC";
+        private const string FormId = "CalendarInfoUC";
+        private const string FormTitle = "กำหนดปฏิทินบริษัท";
+
+        private const string IdTabHeaderGeneral = "devTabPgGeneral";
+        private const string IdTabHeaderCalendar = "devTabPgCalendar";
+        private const string TabGeneralName = "General";
+        private const string TabCalendarName = "ปฏิทินทำงาน";
+
+        private const string IdCalendarCode = "devTxtCalendarCode";
+        private const string IdCalendarName = "devtxtCalendarName";
+        private const string IdCalendarNameAlt = "devTxtCalendarName";
+        private const string IdCalendarNameEng = "devTxtCalendarNameEng";
+        private const string IdCalendarRemark = "devMemoCalendarRemark";
+        private const string IdBtnWeekend = "devBtnWeekend";
+        private const string IdChkSelectAllHolidays = "devChkSelectAllHolidays";
+
+        /// <summary>
+        /// ขั้นที่ 1: เปิดหน้าจอและกรอกข้อมูลสร้างใหม่
+        /// </summary>
+        public void NavigateToCalendarInfoUC()
+        {
+            TestLogger.LogInfo(ScreenLogName, "เริ่มทดสอบหน้าจอ Calendar Setup Info");
+            TestProgressHelper.Report(12, $"Opening Setup -> {MenuName} Menu via Search...");
+
+            const string stageName = "TestCase00_AddCalendarData";
+            if (!TryOpenCalendarMenu(stageName)) return;
+
+            Window? form = null;
+            for (int i = 0; i < Step1_AddCases.Length; i++)
+            {
+                var item = Step1_AddCases[i];
+                string testName = $"{stageName}_{item.Code}";
+                int currentProgress = 13 + (i * 2);
+                TestProgressHelper.Report(currentProgress, $"Adding Calendar ({i + 1}/{Step1_AddCases.Length}): {item.Code}...");
+
+                try
+                {
+                    form ??= GetOrOpenCalendarForm();
+
+                    SwitchToGeneralTab(form);
+                    FillCalendarBasicFields(form, item.Code, item.NameTh, item.NameEn, item.Remark);
+
+                    SwitchToCalendarTab(form);
+                    foreach (var schedule in item.Schedules)
+                    {
+                        var btnWeekend = Retry(() =>
+                            form.FindFirstDescendant(cf => cf.ByAutomationId(IdBtnWeekend))
+                            ?? form.FindFirstDescendant(cf => cf.ByName("กำหนดปฏิทินแบบกลุ่ม")), 4000)
+                            ?? throw new Exception("หาปุ่ม 'กำหนดปฏิทินแบบกลุ่ม' ไม่เจอ");
+
+                        ClickElementByMouse(btnWeekend);
+
+                        Window groupPopup = Retry(() => FindGroupSetupPopupWindow(form), 5000)
+                            ?? throw new Exception("เปิด Pop-up 'กำหนดปฏิทินแบบกลุ่ม' ไม่สำเร็จ");
+
+                        FillGroupCalendarPopup(groupPopup, schedule);
+
+                        var btnOk = groupPopup.FindFirstDescendant(cf => cf.ByName("OK")).AsButton()
+                                   ?? groupPopup.FindFirstDescendant(cf => cf.ByName("ตกลง")).AsButton();
+
+                        if (btnOk != null) ClickElementByMouse(btnOk);
+                        else Keyboard.Press(VirtualKeyShort.ENTER);
+
+                        WaitForClosed(() => groupPopup);
+                    }
+
+                    string saveButtonName = item.SaveAction;
+                    bool saveSuccess = TrySaveAndHandleDuplicate(form, testName, item.Code, saveButtonName);
+                    if (!saveSuccess) { form = null; continue; }
+
+                    if (saveButtonName == "Save")
+                    {
+                        ClickFormCloseButton(form);
+                        WaitForClosed(() => FindOpenCalendarForm());
+                        form = null;
+                        RefreshGrid();
+                        if (FindGridElement(item.Code) != null)
+                            LogSuccessCounted(testName, $"'{item.Code}' เพิ่มสำเร็จ (พบในตารางหลัก)");
+                        else
+                            LogFailureCounted(testName, $"'{item.Code}' ไม่พบในตารางหลักหลังบันทึก");
+                    }
+                    else if (saveButtonName == "Save and Close")
+                    {
+                        WaitForClosed(() => FindOpenCalendarForm());
+                        form = null;
+                        RefreshGrid();
+                        if (FindGridElement(item.Code) != null)
+                            LogSuccessCounted(testName, $"'{item.Code}' เพิ่มสำเร็จ (พบในตารางหลัก)");
+                        else
+                            LogFailureCounted(testName, $"'{item.Code}' ไม่พบในตารางหลักหลังบันทึก");
+                    }
+                    else if (saveButtonName == "Save and New")
+                    {
+                        SwitchToGeneralTab(form);
+                        WaitUntil(() =>
+                        {
+                            var txt = form.FindFirstDescendant(cf => cf.ByAutomationId(IdCalendarCode))?.AsTextBox();
+                            return string.IsNullOrEmpty(txt?.Text);
+                        }, 3000);
+                        LogSuccessCounted(testName, $"'{item.Code}' บันทึกสำเร็จ (Save and New)");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogFailureCounted(testName, $"'{item.Code}' เพิ่มไม่สำเร็จ: {ex.Message}");
+                    CloseAnyOpenModalForm();
+                    form = null;
+                }
+            }
         }
 
-        // -------------------------------------------------------------
-        // * Navigation & Search System *
-        // -------------------------------------------------------------
-        private bool TryOpenCalendarMenu(string stage)
+        /// <summary>
+        /// ขั้นที่ 2: รัน Validation ตอนสร้างข้อมูลใหม่
+        /// </summary>
+        public void RunAllValidationTests()
         {
+            const string stageName = "TestCase01-08_Validation";
+            TestProgressHelper.Report(30, "Opening Calendar Form for Validation Tests...");
+
+            Window form;
+            try { form = OpenCalendarForm(); }
+            catch (Exception ex)
+            {
+                LogFailureCounted(stageName, $"เปิดฟอร์มไม่สำเร็จ: {ex.Message}");
+                return;
+            }
+
+            SwitchToGeneralTab(form);
+
+            foreach (var testCase in Step2_AddValidationCases)
+            {
+                TestProgressHelper.Report(testCase.Progress, testCase.ProgressMsg);
+                RunValidationStep(testCase.TestCaseId, () =>
+                    FillAndSaveThenAssert(ref form, testCase.Code, testCase.NameTh, testCase.SaveBtn,
+                        testCase.TestCaseId, testCase.ExpectedErrors));
+            }
+
+            const string dupCloseBase = "TestCase05_DuplicateCodeAndName";
+            string[] dupMessages = { "รหัสปฏิทิน ห้ามซ้ำ กรุณาป้อนข้อมูล", "ชื่อปฏิทิน ห้ามซ้ำ กรุณาป้อนข้อมูล" };
+
+            TestProgressHelper.Report(47, "Validation 6/8: Dialog Sequence (Close -> Yes)...");
+            RunValidationStep($"{dupCloseBase}_Close_Yes", () =>
+            {
+                ClickFormCloseButton(form);
+                HandleConfirmDialogIfPresent("Yes", form);
+                AssertTaskResultMultipleWarningsAndFormOpen(form, dupMessages, $"{dupCloseBase}_Close_Yes");
+            });
+
+            TestProgressHelper.Report(49, "Validation 7/8: Dialog Sequence (Close -> Cancel)...");
+            RunValidationStep($"{dupCloseBase}_Close_Cancel", () =>
+            {
+                ClickFormCloseButton(form);
+                HandleConfirmDialogIfPresent("Cancel", form);
+                AssertFormStillOpen(form, $"{dupCloseBase}_Close_Cancel");
+            });
+
+            TestProgressHelper.Report(50, "Validation 8/8: Dialog Sequence (Close -> No)...");
+            RunValidationStep($"{dupCloseBase}_Close_No", () =>
+            {
+                ClickFormCloseButton(form);
+                HandleConfirmDialogIfPresent("No", form);
+                AssertFormClosed(form, $"{dupCloseBase}_Close_No");
+            });
+        }
+
+        /// <summary>
+        /// ขั้นที่ 3: เลือกแก้ไขรายการในตาราง
+        /// </summary>
+        public void RunEditTests()
+        {
+            TestProgressHelper.Report(52, "Starting Edit Calendar Operations...");
+            RefreshGrid();
+
+            foreach (var item in Step3_EditCases)
+            {
+                TestProgressHelper.Report(item.Progress, item.ProgressMsg);
+                PerformEdit(item.TestCaseId, item.ExistingCode, item.NewCode, item.NewNameTh, item.NewNameEn,
+                    item.SaveButtonName, item.NeedsExplicitClose);
+            }
+        }
+
+        /// <summary>
+        /// ขั้นที่ 4: รัน Validation ตอนแก้ไขข้อมูล
+        /// </summary>
+        public void RunEditValidationTests()
+        {
+            const string baseTestName = "TestCase08_EditValidation";
+            TestProgressHelper.Report(66, $"Opening Edit Form for Validation ({EditTargetRow})...");
+
+            Window form;
             try
             {
-                var searchBox = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("baritemSearch"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit)), 4000)
-                                ?? throw new Exception("ไม่พบช่องค้นหา baritemSearch");
-
-                WaitUntil(() => { try { searchBox.Focus(); return true; } catch { return false; } }, 1000);
-                string searchKeyword = FormTitle;
-
-                if (searchBox.Patterns.Value.IsSupported)
-                    searchBox.Patterns.Value.Pattern.SetValue(searchKeyword);
-                else
-                    Keyboard.Type(searchKeyword);
-
-                var searchBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("barChkSearch"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Find")), 4000)
-                                ?? throw new Exception("ไม่พบปุ่มค้นหา barChkSearch");
-
-                searchBtn.Click();
-
-                var menuResult = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName(searchKeyword))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 1"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 22")), 4000)
-                                 ?? throw new Exception("ไม่พบผลลัพธ์เมนูจากการค้นหา");
-
-                menuResult.Focus();
-                menuResult.Click();
-
-                Keyboard.Press(VirtualKeyShort.ENTER);
-
-                // เช็คโดยตรงว่าหน้าจอแสดงปุ่ม New พร้อมใช้งาน
-                return WaitUntil(() =>
-                {
-                    var newBtn = _mainWindow.FindFirstDescendant(cf => cf.ByName("New"));
-                    return newBtn != null && newBtn.Properties.IsEnabled.ValueOrDefault && !newBtn.Properties.IsOffscreen.ValueOrDefault;
-                }, TimeoutMs);
+                RefreshGrid();
+                form = ClickRowAndOpenEditForm(EditTargetRow, baseTestName);
             }
             catch (Exception ex)
             {
-                LogFailureCounted(stage, $"ค้นหาและเปิดหน้าจอไม่สำเร็จ: {ex.Message}");
-                return false;
+                LogFailureCounted(baseTestName, $"เปิดฟอร์ม Edit ไม่สำเร็จ: {ex.Message}");
+                return;
             }
+
+            SwitchToGeneralTab(form);
+
+            foreach (var testCase in Step4_EditValidationCases)
+            {
+                TestProgressHelper.Report(testCase.Progress, testCase.ProgressMsg);
+                RunValidationStep(testCase.TestCaseId, () =>
+                    FillAndSaveThenAssert(ref form, testCase.Code, testCase.NameTh, testCase.SaveBtn,
+                        testCase.TestCaseId, testCase.ExpectedErrors));
+            }
+
+            const string dupEditCloseBase = $"{baseTestName}_DuplicateCodeAndName";
+            string[] editDupMessages = { "รหัสปฏิทิน ห้ามซ้ำ กรุณาป้อนข้อมูล", "ชื่อปฏิทิน ห้ามซ้ำ กรุณาป้อนข้อมูล" };
+
+            TestProgressHelper.Report(75, "Edit Validation 5/7: Dialog (Close -> Yes)...");
+            RunValidationStep($"{dupEditCloseBase}_Close_Yes", () =>
+            {
+                ClickFormCloseButton(form);
+                HandleConfirmDialogIfPresent("Yes", form);
+                AssertTaskResultMultipleWarningsAndFormOpen(form, editDupMessages, $"{dupEditCloseBase}_Close_Yes");
+            });
+
+            TestProgressHelper.Report(76, "Edit Validation 6/7: Dialog (Close -> Cancel)...");
+            RunValidationStep($"{dupEditCloseBase}_Close_Cancel", () =>
+            {
+                ClickFormCloseButton(form);
+                HandleConfirmDialogIfPresent("Cancel", form);
+                AssertFormStillOpen(form, $"{dupEditCloseBase}_Close_Cancel");
+            });
+
+            TestProgressHelper.Report(77, "Edit Validation 7/7: Dialog (Close -> No)...");
+            RunValidationStep($"{dupEditCloseBase}_Close_No", () =>
+            {
+                ClickFormCloseButton(form);
+                HandleConfirmDialogIfPresent("No", form);
+                AssertFormClosed(form, $"{dupEditCloseBase}_Close_No");
+            });
+
+            LogSuccessCounted(baseTestName, "รัน Validation Edit ครบทุกเคสแล้ว");
         }
 
-        // -------------------------------------------------------------
-        // * Tab Navigation Helpers *
-        // -------------------------------------------------------------
+        /// <summary>
+        /// ขั้นที่ 5: ทดสอบการลบรายการในตาราง
+        /// </summary>
+        public void RunDeleteTests()
+        {
+            const string baseTestName = "TestCase09_Delete";
+            RefreshGrid();
+
+            foreach (var testCase in Step5_DeleteCases)
+            {
+                TestProgressHelper.Report(testCase.Progress, testCase.ProgressMsg);
+                RunDeleteCaseByCode($"{baseTestName}_{testCase.TargetCode.Replace("-", "")}_{testCase.DialogBtn}",
+                    testCase.TargetCode, confirmButton: testCase.DialogBtn, expectDeleted: testCase.ExpectDeleted);
+            }
+
+            LogSuccessCounted(baseTestName, "ทดสอบ Delete ครบทุกเคส");
+            TestProgressHelper.Report(85, "Calendar UI Tests Complete. Ready for SQL Compare.");
+            TestLogger.LogInfo(ScreenLogName, $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
+        }
+
+        public void RunAllTestSteps()
+        {
+            NavigateToCalendarInfoUC();
+            RunAllValidationTests();
+            RunEditTests();
+            RunEditValidationTests();
+            RunDeleteTests();
+        }
+
+        // --- Custom Mapping & Control Logic ประจำหน้าจอ CalendarInfoUC ---
+        private void FillCalendarBasicFields(AutomationElement context, string code, string nameTh, string nameEn, string remark)
+        {
+            FillTextBox(context, IdCalendarCode, code);
+            FillTextBox(context, IdCalendarName, nameTh);
+            FillTextBox(context, IdCalendarNameEng, nameEn);
+            FillTextBox(context, IdCalendarRemark, remark);
+        }
+
         private void SwitchToGeneralTab(Window form)
         {
             var tab = Retry(() =>
@@ -185,460 +602,6 @@ namespace HRMITestFlaUI.Pages.Setup
 
             WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId(IdBtnWeekend)) != null ||
                             form.FindFirstDescendant(cf => cf.ByName("กำหนดปฏิทินแบบกลุ่ม")) != null, 3000);
-        }
-
-        // -------------------------------------------------------------
-        // * ข้อ 1. ทดสอบการ New เพิ่มข้อมูล 7 รายการ *
-        // -------------------------------------------------------------
-        public void NavigateToCalendarInfoUC()
-        {
-            TestLogger.LogInfo("CalendarInfoUC", "เริ่มทดสอบหน้าจอ Calendar Setup Info");
-            TestProgressHelper.Report(12, "Opening Setup -> Calendar Info Menu via Search...");
-
-            string stageName = "TestCase00_AddCalendarData";
-            if (!TryOpenCalendarMenu(stageName)) return;
-
-            var items = BuildNewTestRecords();
-            Window? form = null;
-
-            for (int i = 0; i < items.Count; i++)
-            {
-                var item = items[i];
-                string testName = $"{stageName}_{item.Code}";
-                int currentProgress = 13 + (i * 2);
-                TestProgressHelper.Report(currentProgress, $"Adding Calendar ({i + 1}/{items.Count}): {item.Code}...");
-
-                try
-                {
-                    form ??= GetOrOpenCalendarForm();
-
-                    // 1. กรอกข้อมูลทั่วไป
-                    SwitchToGeneralTab(form);
-                    FillCalendarBasicFields(form, item.Code, item.NameTh, item.NameEn, item.Remark);
-
-                    // 2. สลับไปแท็บปฏิทินทำงานเพื่อตั้งค่ากำหนดวันแบบกลุ่ม
-                    SwitchToCalendarTab(form);
-
-                    foreach (var schedule in item.Schedules)
-                    {
-                        var btnWeekend = Retry(() =>
-                            form.FindFirstDescendant(cf => cf.ByAutomationId(IdBtnWeekend))
-                            ?? form.FindFirstDescendant(cf => cf.ByName("กำหนดปฏิทินแบบกลุ่ม")), 4000)
-                            ?? throw new Exception("หาปุ่ม 'กำหนดปฏิทินแบบกลุ่ม' ไม่เจอ");
-
-                        ClickElementByMouse(btnWeekend);
-
-                        Window groupPopup = Retry(() => FindGroupSetupPopupWindow(form), 5000)
-                            ?? throw new Exception("เปิด Pop-up 'กำหนดปฏิทินแบบกลุ่ม' ไม่สำเร็จ");
-
-                        FillGroupCalendarPopup(groupPopup, schedule);
-
-                        var btnOk = groupPopup.FindFirstDescendant(cf => cf.ByName("OK")).AsButton()
-                                   ?? groupPopup.FindFirstDescendant(cf => cf.ByName("ตกลง")).AsButton();
-
-                        if (btnOk != null) ClickElementByMouse(btnOk);
-                        else Keyboard.Press(VirtualKeyShort.ENTER);
-
-                        WaitForClosed(() => groupPopup);
-                    }
-
-                    // 3. บันทึกข้อมูลตามลักษณะของแต่ละรายการ
-                    string saveButtonName = item.SaveAction;
-                    bool saveSuccess = TrySaveAndHandleDuplicate(form, testName, item.Code, saveButtonName);
-                    if (!saveSuccess) { form = null; continue; }
-
-                    // 4. จัดการสถานะฟอร์มตามลักษณะปุ่มบันทึก
-                    if (saveButtonName == "Save")
-                    {
-                        ClickFormCloseButton(form);
-                        WaitForClosed(() => FindOpenCalendarForm());
-                        form = null;
-                        RefreshGrid();
-                        if (FindGridElement(item.Code) != null)
-                            LogSuccessCounted(testName, $"'{item.Code}' เพิ่มสำเร็จ (พบในตารางหลัก)");
-                        else
-                            LogFailureCounted(testName, $"'{item.Code}' ไม่พบในตารางหลักหลังบันทึก");
-                    }
-                    else if (saveButtonName == "Save and Close")
-                    {
-                        WaitForClosed(() => FindOpenCalendarForm());
-                        form = null;
-                        RefreshGrid();
-                        if (FindGridElement(item.Code) != null)
-                            LogSuccessCounted(testName, $"'{item.Code}' เพิ่มสำเร็จ (พบในตารางหลัก)");
-                        else
-                            LogFailureCounted(testName, $"'{item.Code}' ไม่พบในตารางหลักหลังบันทึก");
-                    }
-                    else if (saveButtonName == "Save and New")
-                    {
-                        SwitchToGeneralTab(form);
-                        WaitUntil(() =>
-                        {
-                            var txt = form.FindFirstDescendant(cf => cf.ByAutomationId(IdCalendarCode))?.AsTextBox();
-                            return string.IsNullOrEmpty(txt?.Text);
-                        }, 3000);
-                        LogSuccessCounted(testName, $"'{item.Code}' บันทึกสำเร็จ (Save and New)");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    LogFailureCounted(testName, $"'{item.Code}' เพิ่มไม่สำเร็จ: {ex.Message}");
-                    CloseAnyOpenModalForm();
-                    form = null;
-                }
-            }
-        }
-
-        private static List<CalendarRecord> BuildNewTestRecords() => new()
-        {
-            new CalendarRecord(
-                "CAL-TEST-01", "หยุดทุกวันอาทิตย์", "Day off every Sunday", "หยุดวันอาทิตย์",
-                new List<GroupScheduleConfig>
-                {
-                    new(
-                        "วันหยุด", "วันหยุด", "วันหยุด", "1/1/2569", "31/12/2569",
-                        2, "1",
-                        new DaysSelection { Mon = false, Tue = false, Wed = false, Thu = false, Fri = false, Sat = false, Sun = true },
-                        true
-                    )
-                },
-                "Save"),
-
-            new CalendarRecord(
-                "CAL-TEST-02", "หยุุดทุกวันเสาร์", "Day off every Saturday", "หยุดวันเสาร์",
-                new List<GroupScheduleConfig>
-                {
-                    new(
-                        "วันหยุด", "วันหยุด", "วันหยุด", "1/1/2569", "31/12/2569",
-                        2, "1",
-                        new DaysSelection { Mon = false, Tue = false, Wed = false, Thu = false, Fri = false, Sat = true, Sun = false },
-                        true
-                    )
-                },
-                "Save and New"),
-
-            new CalendarRecord(
-                "CAL-TEST-03", "ทำงานวัน จันทร์-ศุกร์", "Working days: Monday - Friday", "ทำงานวัน จันทร์-ศุกร์",
-                new List<GroupScheduleConfig>
-                {
-                    new(
-                        "วันทำงาน", "วันทำงาน", "วันทำงาน", "1/1/2569", "31/12/2569",
-                        2, "5",
-                        new DaysSelection { Mon = true, Tue = true, Wed = true, Thu = true, Fri = true, Sat = false, Sun = false },
-                        true
-                    )
-                },
-                "Save and New"),
-
-            new CalendarRecord(
-                "CAL-TEST-04", "วันหยุดประจำปี", "Company Holidays", "หยุดประจำปี",
-                new List<GroupScheduleConfig>
-                {
-                    new(
-                        "วันหยุดประจำปี", "วันหยุดประจำปี", "วันหยุดประจำปี", "1/1/2569", "31/12/2569",
-                        3, "28",
-                        null,
-                        true
-                    )
-                },
-                "Save and New"),
-
-            new CalendarRecord(
-                "CAL-TEST-05", "หยุุดทุกวันจันทร์", "Day off every Monday", "หยุดวันจันทร์",
-                new List<GroupScheduleConfig>
-                {
-                    new(
-                        "วันหยุด", "วันหยุด", "วันหยุด", "1/1/2569", "31/12/2569",
-                        2, "1",
-                        new DaysSelection { Mon = true, Tue = false, Wed = false, Thu = false, Fri = false, Sat = false, Sun = false },
-                        true
-                    )
-                },
-                "Save and New"),
-
-            new CalendarRecord(
-                "CAL-TEST-06", "ปี 2569", "twenty-five sixty-nine", "ปฏิทินประจำปี 2569",
-                new List<GroupScheduleConfig>
-                {
-                    new(
-                        "วันทำงาน", "ทำงานปกติ", "ทำงานปกติ", "1/1/2569", "31/12/2569",
-                        2, "1",
-                        new DaysSelection { Mon = true, Tue = true, Wed = true, Thu = true, Fri = true, Sat = false, Sun = false },
-                        true
-                    ),
-                    new(
-                        "วันหยุด", "หยุด", "หยุด", "1/1/2569", "31/12/2569",
-                        2, "1",
-                        new DaysSelection { Mon = false, Tue = false, Wed = false, Thu = false, Fri = false, Sat = true, Sun = true },
-                        true
-                    )
-                },
-                "Save and Close"),
-
-            new CalendarRecord(
-                "CAL-TEST-07", "ปี 2570", "twenty-five seventy", "ปฏิทินประจำปี 2570",
-                new List<GroupScheduleConfig>
-                {
-                    new(
-                        "วันทำงาน", "ทำงานปกติ", "ทำงานปกติ", "1/1/2570", "31/12/2570",
-                        2, "1",
-                        new DaysSelection { Mon = true, Tue = true, Wed = true, Thu = true, Fri = true, Sat = false, Sun = false },
-                        true
-                    ),
-                    new(
-                        "วันหยุด", "หยุด", "หยุด", "1/1/2570", "31/12/2570",
-                        2, "1",
-                        new DaysSelection { Mon = false, Tue = false, Wed = false, Thu = false, Fri = false, Sat = true, Sun = true },
-                        true
-                    )
-                },
-                "Save and Close")
-        };
-
-        // -------------------------------------------------------------
-        // * ข้อ 2. ทดสอบ แจ้งเตือนต่างๆ เมื่อ New *
-        // -------------------------------------------------------------
-        public void RunAllValidationTests()
-        {
-            string stageName = "TestCase01-08_Validation";
-            TestProgressHelper.Report(30, "Opening Calendar Form for Validation Tests...");
-
-            Window form;
-            try { form = OpenCalendarForm(); }
-            catch (Exception ex)
-            {
-                LogFailureCounted(stageName, $"เปิดฟอร์มไม่สำเร็จ: {ex.Message}");
-                return;
-            }
-
-            SwitchToGeneralTab(form);
-
-            // Validation 1
-            TestProgressHelper.Report(33, "Validation 1/8: Missing Code & Details...");
-            RunValidationStep("TestCase01_MissingCode", () =>
-                FillAndSaveThenAssert(ref form, "", "วันหยุด", "Save",
-                    "TestCase01_MissingCode",
-                    "รหัสปฏิทิน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล",
-                    "จะต้องกำหนดข้อมูลปฏิทินอย่างน้อย 1 รายการ"));
-
-            // Validation 2
-            TestProgressHelper.Report(36, "Validation 2/8: Missing Name (CAL-TEST-08)...");
-            RunValidationStep("TestCase02_MissingName", () =>
-                FillAndSaveThenAssert(ref form, "CAL-TEST-08", "", "Save and New",
-                    "TestCase02_MissingName",
-                    "ชื่อปฏิทิน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล",
-                    "จะต้องกำหนดข้อมูลปฏิทินอย่างน้อย 1 รายการ"));
-
-            // Validation 3
-            TestProgressHelper.Report(39, "Validation 3/8: Missing Both Code & Name...");
-            RunValidationStep("TestCase03_MissingBoth", () =>
-                FillAndSaveThenAssert(ref form, "", "", "Save and New",
-                    "TestCase03_MissingBoth",
-                    "รหัสปฏิทิน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล",
-                    "ชื่อปฏิทิน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล",
-                    "จะต้องกำหนดข้อมูลปฏิทินอย่างน้อย 1 รายการ"));
-
-            // Validation 4
-            TestProgressHelper.Report(42, "Validation 4/8: Missing Calendar Details...");
-            RunValidationStep("TestCase04_MissingCalendarDetails", () =>
-                FillAndSaveThenAssert(ref form, "CAL-TEST-08", "วันหยุดทดสอบ", "Save and New",
-                    "TestCase04_MissingCalendarDetails",
-                    "จะต้องกำหนดข้อมูลปฏิทินอย่างน้อย 1 รายการ"));
-
-            // Validation 5
-            TestProgressHelper.Report(45, "Validation 5/8: Duplicate Code & Name Check...");
-            RunValidationStep("TestCase05_DuplicateCodeAndName", () =>
-                FillAndSaveThenAssert(ref form, "CAL-TEST-07", "ปี 2570", "Save and New",
-                    "TestCase05_DuplicateCodeAndName",
-                    "รหัสปฏิทิน ห้ามซ้ำ กรุณาป้อนข้อมูล",
-                    "ชื่อปฏิทิน ห้ามซ้ำ กรุณาป้อนข้อมูล"));
-
-            // Validation 6
-            TestProgressHelper.Report(47, "Validation 6/8: Dialog Sequence (Close -> Yes)...");
-            RunValidationStep("TestCase05_DuplicateCodeAndName_Close_Yes", () =>
-            {
-                ClickFormCloseButton(form);
-                HandleConfirmDialogIfPresent("Yes", form);
-
-                AssertTaskResultMultipleWarningsAndFormOpen(form, new[]
-                {
-                    "รหัสปฏิทิน ห้ามซ้ำ กรุณาป้อนข้อมูล",
-                    "ชื่อปฏิทิน ห้ามซ้ำ กรุณาป้อนข้อมูล"
-                }, "TestCase05_DuplicateCodeAndName_Close_Yes");
-            });
-
-            // Validation 7
-            TestProgressHelper.Report(49, "Validation 7/8: Dialog Sequence (Close -> Cancel)...");
-            RunValidationStep("TestCase05_DuplicateCodeAndName_Close_Cancel", () =>
-            {
-                ClickFormCloseButton(form);
-                HandleConfirmDialogIfPresent("Cancel", form);
-
-                AssertFormStillOpen(form, "TestCase05_DuplicateCodeAndName_Close_Cancel");
-            });
-
-            // Validation 8
-            TestProgressHelper.Report(50, "Validation 8/8: Dialog Sequence (Close -> No)...");
-            RunValidationStep("TestCase05_DuplicateCodeAndName_Close_No", () =>
-            {
-                ClickFormCloseButton(form);
-                HandleConfirmDialogIfPresent("No", form);
-
-                AssertFormClosed(form, "TestCase05_DuplicateCodeAndName_Close_No");
-            });
-        }
-
-        // -------------------------------------------------------------
-        // * ข้อ 3. ทดสอบ Edit *
-        // -------------------------------------------------------------
-        public void RunEditTests()
-        {
-            TestProgressHelper.Report(52, "Starting Edit Calendar Operations...");
-            var results = new List<(string TestName, string ExistingCode, string NewCode, string NewName)>();
-
-            RefreshGrid();
-
-            // แก้ไขแถวที่ 1: CAL-TEST-01 -> CAL001
-            TestProgressHelper.Report(55, "Editing Row 1 (CAL-TEST-01 -> CAL001)...");
-            TryAdd(results, PerformEdit("TestCase06_EditRow1", existingCode: "CAL-TEST-01",
-                newCode: "CAL001", newNameTh: "หยุดวันอาทิตย์", newNameEn: "Sunday Off",
-                saveButtonName: "Save", needsExplicitClose: true));
-
-            // แก้ไขแถวที่ 2: CAL-TEST-02 -> CAL002
-            TestProgressHelper.Report(60, "Editing Row 2 (CAL-TEST-02 -> CAL002)...");
-            TryAdd(results, PerformEdit("TestCase07_EditRow2", existingCode: "CAL-TEST-02",
-                newCode: "CAL002", newNameTh: "หยุดวันเสาร์", newNameEn: "Saturday Off",
-                saveButtonName: "Save and Close", needsExplicitClose: false));
-        }
-
-        // -------------------------------------------------------------
-        // * ข้อ 4. ทดสอบ การแจ้งเตือน Edit *
-        // -------------------------------------------------------------
-        public void RunEditValidationTests()
-        {
-            string baseTestName = "TestCase08_EditValidation";
-            TestProgressHelper.Report(66, "Opening Edit Form for Validation (CAL002)...");
-
-            Window form;
-            try
-            {
-                RefreshGrid();
-                form = TryClickRowAndOpenEditForm("CAL002", baseTestName) ?? ClickRowAndOpenEditForm("CAL-TEST-02", baseTestName);
-            }
-            catch (Exception ex)
-            {
-                LogFailureCounted(baseTestName, $"เปิดฟอร์ม Edit ไม่สำเร็จ: {ex.Message}");
-                return;
-            }
-
-            SwitchToGeneralTab(form);
-
-            // Edit Validation 1: ลบรหัสออก ใส่ชื่อ "หยุดวันอาทิตย์" -> กด Save
-            TestProgressHelper.Report(68, "Edit Validation 1/7: Missing Code...");
-            RunValidationStep($"{baseTestName}_MissingCode", () =>
-                FillAndSaveThenAssert(ref form, "", "หยุดวันอาทิตย์", "Save",
-                    $"{baseTestName}_MissingCode", "รหัสปฏิทิน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล"));
-
-            // Edit Validation 2: ใส่รหัส CAL002 ลบชื่อออก -> กด Save and New
-            TestProgressHelper.Report(70, "Edit Validation 2/7: Missing Name...");
-            RunValidationStep($"{baseTestName}_MissingName", () =>
-                FillAndSaveThenAssert(ref form, "CAL002", "", "Save and New",
-                    $"{baseTestName}_MissingName", "ชื่อปฏิทิน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล"));
-
-            // Edit Validation 3: ลบทั้งคู่ -> กด Save
-            TestProgressHelper.Report(72, "Edit Validation 3/7: Missing Both...");
-            RunValidationStep($"{baseTestName}_MissingBoth", () =>
-                FillAndSaveThenAssert(ref form, "", "", "Save",
-                    $"{baseTestName}_MissingBoth",
-                    "รหัสปฏิทิน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล",
-                    "ชื่อปฏิทิน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล"));
-
-            // Edit Validation 4: รหัสซ้ำ CAL-TEST-03, ชื่อซ้ำ ทำงานวัน จันทร์-ศุกร์ -> กด Save and New
-            TestProgressHelper.Report(74, "Edit Validation 4/7: Duplicate Code & Name...");
-            RunValidationStep($"{baseTestName}_DuplicateCodeAndName", () =>
-                FillAndSaveThenAssert(ref form, "CAL-TEST-03", "ทำงานวัน จันทร์-ศุกร์", "Save and New",
-                    $"{baseTestName}_DuplicateCodeAndName",
-                    "รหัสปฏิทิน ห้ามซ้ำ กรุณาป้อนข้อมูล",
-                    "ชื่อปฏิทิน ห้ามซ้ำ กรุณาป้อนข้อมูล"));
-
-            // Edit Validation 5: Close -> Yes
-            TestProgressHelper.Report(75, "Edit Validation 5/7: Dialog (Close -> Yes)...");
-            RunValidationStep($"{baseTestName}_DuplicateCodeAndName_Close_Yes", () =>
-            {
-                ClickFormCloseButton(form);
-                HandleConfirmDialogIfPresent("Yes", form);
-
-                AssertTaskResultMultipleWarningsAndFormOpen(form, new[]
-                {
-                    "รหัสปฏิทิน ห้ามซ้ำ กรุณาป้อนข้อมูล",
-                    "ชื่อปฏิทิน ห้ามซ้ำ กรุณาป้อนข้อมูล"
-                }, $"{baseTestName}_DuplicateCodeAndName_Close_Yes");
-            });
-
-            // Edit Validation 6: Close -> Cancel
-            TestProgressHelper.Report(76, "Edit Validation 6/7: Dialog (Close -> Cancel)...");
-            RunValidationStep($"{baseTestName}_DuplicateCodeAndName_Close_Cancel", () =>
-            {
-                ClickFormCloseButton(form);
-                HandleConfirmDialogIfPresent("Cancel", form);
-
-                AssertFormStillOpen(form, $"{baseTestName}_DuplicateCodeAndName_Close_Cancel");
-            });
-
-            // Edit Validation 7: Close -> No
-            TestProgressHelper.Report(77, "Edit Validation 7/7: Dialog (Close -> No)...");
-            RunValidationStep($"{baseTestName}_DuplicateCodeAndName_Close_No", () =>
-            {
-                ClickFormCloseButton(form);
-                HandleConfirmDialogIfPresent("No", form);
-
-                AssertFormClosed(form, $"{baseTestName}_DuplicateCodeAndName_Close_No");
-            });
-
-            LogSuccessCounted(baseTestName, "รัน Validation Edit ครบทุกเคสแล้ว");
-        }
-
-        // -------------------------------------------------------------
-        // * ข้อ 5. ทดสอบ Delete *
-        // -------------------------------------------------------------
-        public void RunDeleteTests()
-        {
-            string baseTestName = "TestCase09_Delete";
-
-            RefreshGrid();
-
-            // เคสที่ 1: ลบรายการ CAL-TEST-05 -> Yes
-            TestProgressHelper.Report(80, "Testing Delete (CAL-TEST-05 - Yes Confirm)...");
-            RunDeleteCaseByCode($"{baseTestName}_CALTEST05_Yes", "CAL-TEST-05", confirmButton: "Yes", expectDeleted: true);
-
-            // เคสที่ 2: ลบรายการแรก (CAL001 หรือ CAL-TEST-01) -> No
-            string firstRowCode = FindGridElement("CAL001") != null ? "CAL001" : "CAL-TEST-01";
-            TestProgressHelper.Report(83, $"Testing Delete ({firstRowCode} First Row - No Action)...");
-            RunDeleteCaseByCode($"{baseTestName}_{firstRowCode.Replace("-", "")}_No", firstRowCode, confirmButton: "No", expectDeleted: false);
-
-            LogSuccessCounted(baseTestName, "ทดสอบ Delete ครบทุกเคส");
-            TestProgressHelper.Report(85, "Calendar UI Tests Complete. Ready for SQL Compare.");
-            TestLogger.LogInfo("CalendarInfoUC", $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
-        }
-
-        public void RunAllTestSteps()
-        {
-            NavigateToCalendarInfoUC();
-            RunAllValidationTests();
-            RunEditTests();
-            RunEditValidationTests();
-            RunDeleteTests();
-        }
-
-        // -------------------------------------------------------------
-        // * Core Helpers & Actions *
-        // -------------------------------------------------------------
-        private void FillCalendarBasicFields(AutomationElement context, string code, string nameTh, string nameEn, string remark)
-        {
-            FillTextBox(context, IdCalendarCode, code);
-            FillTextBox(context, IdCalendarName, nameTh);
-            FillTextBox(context, IdCalendarNameEng, nameEn);
-            FillTextBox(context, IdCalendarRemark, remark);
         }
 
         private void FillGroupCalendarPopup(Window popup, GroupScheduleConfig r)
@@ -732,6 +695,372 @@ namespace HRMITestFlaUI.Pages.Setup
             }
         }
 
+        private Window? FindGroupSetupPopupWindow(Window form)
+        {
+            return Retry(() =>
+                form.ModalWindows.FirstOrDefault(w => w.Name.Contains("กำหนดปฏิทินแบบกลุ่ม"))
+                ?? _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault(w => w.Name.Contains("กำหนดปฏิทินแบบกลุ่ม"))
+                ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByName("กำหนดปฏิทินแบบกลุ่ม"))?.AsWindow(),
+                timeoutMs: 4000);
+        }
+
+        private Window GetOrOpenCalendarForm() => Retry(FindOpenCalendarForm, 1500) ?? OpenCalendarForm();
+
+        private Window OpenCalendarForm()
+        {
+            CloseAnyOpenModalForm();
+            var newBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName("New")), 3000)
+                         ?? throw new Exception("หาปุ่ม New ไม่เจอ");
+
+            ClickElementByMouse(newBtn);
+            var form = Retry(FindOpenCalendarForm, 8000) ?? throw new Exception("หาฟอร์ม กำหนดปฏิทินบริษัท ไม่เจอ");
+            WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId(IdCalendarCode)) != null, 4000);
+            return form;
+        }
+
+        private Window? FindOpenCalendarForm()
+        {
+            var modal = _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault(w =>
+                w.AutomationId == FormId ||
+                w.Name.Contains(FormTitle));
+
+            if (modal != null) return modal;
+
+            return _automation.GetDesktop().FindFirstChild(cf =>
+                cf.ByAutomationId(FormId)
+                .Or(cf.ByName(FormTitle)))?.AsWindow();
+        }
+
+        private Window ClickRowAndOpenEditForm(string codeToFind, string testName)
+        {
+            AutomationElement? row = Retry(() => FindGridElement(codeToFind), timeoutMs: 4000);
+            if (row == null)
+            {
+                RefreshGrid();
+                row = Retry(() => FindGridElement(codeToFind), timeoutMs: 4000)
+                      ?? throw new Exception($"หาแถว '{codeToFind}' ไม่เจอ");
+            }
+
+            WaitUntil(() => { try { row.Focus(); return true; } catch { return false; } }, 1000);
+            ClickElementByMouse(row);
+
+            var editButton = Retry(() =>
+            {
+                var b = _mainWindow.FindFirstDescendant(cf => cf.ByName("Edit"));
+                return (b != null && b.Properties.IsEnabled.ValueOrDefault) ? b : null;
+            }, 3000) ?? throw new Exception("หาปุ่ม Edit ไม่เจอ");
+
+            ClickElementByMouse(editButton);
+            var form = Retry(FindOpenCalendarForm, 6000) ?? throw new Exception("หาฟอร์ม ไม่เจอ");
+            WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId(IdCalendarCode)) != null, 3000);
+            return form;
+        }
+
+        private (string TestName, string ExistingCode, string NewCode, string NewName)? PerformEdit(
+            string testName, string existingCode, string newCode, string newNameTh, string newNameEn,
+            string saveButtonName, bool needsExplicitClose)
+        {
+            try
+            {
+                var form = ClickRowAndOpenEditForm(existingCode, testName);
+                SwitchToGeneralTab(form);
+
+                FillTextBox(form, IdCalendarCode, newCode);
+                FillTextBox(form, IdCalendarName, newNameTh);
+                FillTextBox(form, IdCalendarNameEng, newNameEn);
+
+                ClickFormButton(form, saveButtonName);
+
+                string? saveWarning = TryDetectAnyTaskResultWarning(form, timeoutMs: 1200);
+                if (saveWarning != null)
+                {
+                    LogFailureCounted(testName, $"แก้ไข {existingCode} เป็น {newCode} ไม่สำเร็จ: {saveWarning}");
+                    try { ClickCloseAndHandleDialog(form, "No", $"{testName}_Close"); } catch { }
+                    return null;
+                }
+
+                if (needsExplicitClose)
+                {
+                    ClickFormCloseButton(form);
+                    HandleConfirmDialogIfPresent("Yes", form);
+                    WaitForClosed(() => FindOpenCalendarForm());
+                }
+                else
+                {
+                    WaitForClosed(() => FindOpenCalendarForm());
+                }
+
+                RefreshGrid();
+                bool found = Retry(() => FindGridElement(newCode), timeoutMs: 3000) != null;
+                if (found)
+                    LogSuccessCounted(testName, $"แก้ไข '{existingCode}' เป็น '{newCode}' สำเร็จ (พบในตารางหลัก)");
+                else
+                    LogFailureCounted(testName, $"แก้ไข '{existingCode}' เป็น '{newCode}' แล้วแต่ไม่พบในตารางหลัก");
+
+                return (testName, existingCode, newCode, newNameTh);
+            }
+            catch (Exception ex)
+            {
+                LogFailureCounted(testName, $"แก้ไข '{existingCode}' ไม่สำเร็จ: {ex.Message}");
+                return null;
+            }
+        }
+
+        private static void FillTextBox(AutomationElement context, string automationId, string value)
+        {
+            var el = context.FindFirstDescendant(cf => cf.ByAutomationId(automationId))
+                  ?? (automationId == IdCalendarName ? context.FindFirstDescendant(cf => cf.ByAutomationId(IdCalendarNameAlt)) : null);
+
+            if (el != null) SetTextDirectly(el, value);
+        }
+
+        private static void FillTextBoxVerified(AutomationElement context, string automationId, string value, int maxTry = 3)
+        {
+            for (int i = 0; i < maxTry; i++)
+            {
+                FillTextBox(context, automationId, value ?? "");
+
+                var el = context.FindFirstDescendant(cf => cf.ByAutomationId(automationId))
+                      ?? (automationId == IdCalendarName ? context.FindFirstDescendant(cf => cf.ByAutomationId(IdCalendarNameAlt)) : null);
+                if (el == null) return;
+
+                if (ReadText(el).Trim() == (value ?? "").Trim()) return;
+            }
+        }
+
+        private static string ReadText(AutomationElement el)
+        {
+            try { if (el.Patterns.Value.IsSupported) return el.Patterns.Value.Pattern.Value.ValueOrDefault ?? ""; } catch { }
+            try { return el.AsTextBox()?.Text ?? ""; } catch { }
+            return "";
+        }
+
+
+        // =========================================================================================
+        // หมวดที่ 3: ส่วนการทำงานกลางที่ตายตัว (Common / Reusable Helpers)
+        // **ใช้งานร่วมกันได้ทุกหน้าจอ ไม่ต้องแก้ไขคำสั่งเมื่อเปลี่ยนหน้า**
+        // =========================================================================================
+
+        private readonly AutomationElement _mainWindow;
+        private readonly UIA3Automation _automation;
+        private int _totalSuccess = 0;
+        private int _totalFail = 0;
+        private const int TimeoutMs = 6000;
+
+        private static readonly HashSet<string> IgnoredTaskResultTexts = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Static", "Task Result", "Header Panel", "Column Headers", "Exception Severity Pict",
+            "Exception Severity Picture", "ExceptionSeverityToolBar", "Data Panel", "Dock Top",
+            "0 Errors", "0 Informations", "More Information", "Description", "Severity",
+            "Message", "Details", "Type", "Source", "Date", "Time", "Column1", ""
+        };
+
+        public CalendarInfoUC(AutomationElement mainWindow, UIA3Automation automation)
+        {
+            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
+            _automation = automation ?? throw new ArgumentNullException(nameof(automation));
+        }
+
+        private bool TryOpenCalendarMenu(string stage)
+        {
+            try
+            {
+                var searchBox = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("baritemSearch"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit)), 4000)
+                                ?? throw new Exception("ไม่พบช่องค้นหา baritemSearch");
+
+                WaitUntil(() => { try { searchBox.Focus(); return true; } catch { return false; } }, 1000);
+                string searchKeyword = FormTitle;
+
+                if (searchBox.Patterns.Value.IsSupported)
+                    searchBox.Patterns.Value.Pattern.SetValue(searchKeyword);
+                else
+                    Keyboard.Type(searchKeyword);
+
+                var searchBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("barChkSearch"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Find")), 4000)
+                                ?? throw new Exception("ไม่พบปุ่มค้นหา barChkSearch");
+
+                searchBtn.Click();
+
+                var menuResult = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName(searchKeyword))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 1"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 22")), 4000)
+                                 ?? throw new Exception("ไม่พบผลลัพธ์เมนูจากการค้นหา");
+
+                menuResult.Focus();
+                menuResult.Click();
+                Keyboard.Press(VirtualKeyShort.ENTER);
+
+                return WaitUntil(() =>
+                {
+                    var newBtn = _mainWindow.FindFirstDescendant(cf => cf.ByName("New"));
+                    return newBtn != null && newBtn.Properties.IsEnabled.ValueOrDefault && !newBtn.Properties.IsOffscreen.ValueOrDefault;
+                }, TimeoutMs);
+            }
+            catch (Exception ex)
+            {
+                LogFailureCounted(stage, $"ค้นหาและเปิดหน้าจอไม่สำเร็จ: {ex.Message}");
+                return false;
+            }
+        }
+
+        private void FillAndSaveThenAssert(ref Window form, string code, string name,
+            string saveButtonName, string testName, params string[] expectedMessages)
+        {
+            if (form == null || !form.IsAvailable || (form.Properties.IsOffscreen.IsSupported && form.Properties.IsOffscreen.ValueOrDefault))
+            {
+                form = FindOpenCalendarForm() ?? OpenCalendarForm();
+            }
+
+            SwitchToGeneralTab(form);
+
+            FillTextBoxVerified(form, IdCalendarCode, code);
+            FillTextBoxVerified(form, IdCalendarName, name);
+
+            var baseline = ReadTaskResultOnce(form);
+
+            ClickFormButton(form, saveButtonName);
+
+            Window formLocal = form;
+            WaitUntil(() => !ReadTaskResultOnce(formLocal).OrderBy(x => x).SequenceEqual(baseline.OrderBy(x => x)), 2000);
+
+            var pending = new HashSet<string>(expectedMessages);
+            var sw = Stopwatch.StartNew();
+
+            while (sw.ElapsedMilliseconds < 5000 && pending.Count > 0)
+            {
+                var currentTexts = ReadTaskResultOnce(form);
+                foreach (var expected in pending.ToList())
+                {
+                    string cleanExpected = expected.Trim(' ', ';', '\r', '\n');
+                    if (currentTexts.Any(m => m.Trim(' ', ';').Contains(cleanExpected) || cleanExpected.Contains(m.Trim(' ', ';'))))
+                    {
+                        pending.Remove(expected);
+                    }
+                }
+                if (pending.Count == 0) break;
+            }
+
+            if (pending.Count > 0)
+            {
+                var lastSeen = ReadTaskResultOnce(form);
+                string foundList = lastSeen.Count > 0 ? string.Join(" | ", lastSeen) : "(ไม่พบข้อความใดๆ ใน Task Result)";
+                throw new Exception($"ไม่พบข้อความแจ้งเตือน: '{string.Join("', '", pending)}' (ข้อความที่เจอจริง: {foundList})");
+            }
+
+            string formattedList = string.Join(",", expectedMessages.Select(m => $"'{m}'"));
+            LogSuccessCounted(testName, $"พบข้อความ: {formattedList}");
+
+            var currentOpen = FindOpenCalendarForm();
+            if (currentOpen != null)
+            {
+                form = currentOpen;
+            }
+        }
+
+        private bool TrySaveAndHandleDuplicate(Window form, string testName, string code, string saveButtonName)
+        {
+            ClickFormButton(form, saveButtonName);
+
+            if (testName.Contains("Validation")) return true;
+
+            string? warningReason = TryDetectAnyTaskResultWarning(form, timeoutMs: 1500);
+            if (warningReason == null) return true;
+
+            LogFailureCounted(testName, $"'{code}' บันทึกไม่สำเร็จ: {warningReason}");
+            try { ClickCloseAndHandleDialog(form, "No", $"{testName}_Close"); } catch { }
+            return false;
+        }
+
+        private void RunDeleteCaseByCode(string testName, string codeToTarget, string confirmButton, bool expectDeleted)
+        {
+            try
+            {
+                RefreshGrid();
+
+                var targetRow = Retry(() => FindGridElement(codeToTarget), timeoutMs: 3000)
+                    ?? throw new Exception($"ไม่พบรายการ '{codeToTarget}' บน Grid");
+
+                WaitUntil(() => { try { targetRow.Focus(); return true; } catch { return false; } }, 1000);
+                ClickElementByMouse(targetRow);
+
+                var deleteBtn = Retry(() =>
+                {
+                    var b = _mainWindow.FindFirstDescendant(cf => cf.ByName("Delete"));
+                    return (b != null && b.Properties.IsEnabled.ValueOrDefault) ? b : null;
+                }, timeoutMs: 3000) ?? throw new Exception("หาปุ่ม Delete ไม่เจอ");
+
+                ClickElementByMouse(deleteBtn);
+
+                HandleConfirmDialogIfPresent(confirmButton, _mainWindow.AsWindow()!);
+
+                bool stillExists = Retry(() => FindGridElement(codeToTarget), timeoutMs: 3000) != null;
+
+                if (expectDeleted && !stillExists)
+                {
+                    LogSuccessCounted(testName, $"'{codeToTarget}' ถูกลบสำเร็จ");
+                }
+                else if (!expectDeleted && stillExists)
+                {
+                    LogSuccessCounted(testName, $"'{codeToTarget}' ข้อมูลยังไม่ถูกลบ");
+                }
+                else
+                {
+                    LogFailureCounted(testName, $"ผลการลบ '{codeToTarget}' ไม่ตรงตามคาด (expectDeleted={expectDeleted}, stillExists={stillExists})");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogFailureCounted(testName, $"ลบ '{codeToTarget}' ไม่สำเร็จ: {ex.Message}");
+            }
+        }
+
+        private static void SetTextDirectly(AutomationElement? element, string text)
+        {
+            if (element == null) return;
+
+            try
+            {
+                var txt = element.AsTextBox();
+                if (txt != null)
+                {
+                    txt.Focus();
+                    txt.Text = text ?? "";
+                }
+            }
+            catch { }
+
+            var currentVal = element.Patterns.Value.IsSupported ? element.Patterns.Value.Pattern.Value.ValueOrDefault : "";
+            if (!string.IsNullOrEmpty(text) && currentVal != text)
+            {
+                ClickElementByMouse(element);
+                element.Focus();
+
+                Keyboard.Press(VirtualKeyShort.CONTROL);
+                Keyboard.Type("a");
+                Keyboard.Release(VirtualKeyShort.CONTROL);
+                Keyboard.Press(VirtualKeyShort.BACK);
+                Keyboard.Press(VirtualKeyShort.DELETE);
+
+                Keyboard.Type(text);
+            }
+            else if (string.IsNullOrEmpty(text) && !string.IsNullOrEmpty(currentVal))
+            {
+                ClickElementByMouse(element);
+                element.Focus();
+
+                Keyboard.Press(VirtualKeyShort.CONTROL);
+                Keyboard.Type("a");
+                Keyboard.Release(VirtualKeyShort.CONTROL);
+                Keyboard.Press(VirtualKeyShort.BACK);
+                Keyboard.Press(VirtualKeyShort.DELETE);
+            }
+
+            Keyboard.Press(VirtualKeyShort.TAB);
+            Keyboard.Release(VirtualKeyShort.TAB);
+        }
+
         private static void TypeDevExpressDate(string dateText)
         {
             if (string.IsNullOrWhiteSpace(dateText)) return;
@@ -811,6 +1140,22 @@ namespace HRMITestFlaUI.Pages.Setup
             }
         }
 
+        private static void TickCheckboxInPopup(Window popup, string automationId, bool targetState, string fallbackName)
+        {
+            var chk = popup.FindFirstDescendant(cf => cf.ByAutomationId(automationId))
+                   ?? popup.FindFirstDescendant(cf => cf.ByName(fallbackName));
+            if (chk == null) return;
+
+            bool currentState = chk.Patterns.Toggle.IsSupported
+                ? chk.Patterns.Toggle.Pattern.ToggleState.Value == ToggleState.On
+                : (chk.AsCheckBox()?.IsChecked ?? false);
+
+            if (currentState != targetState)
+            {
+                ClickElementByMouse(chk);
+            }
+        }
+
         private static void ClickAndTypeTextByLabel(AutomationElement parent, string labelText, string textToType, int offsetX = 100, int offsetY = 0)
         {
             var label = parent.FindFirstDescendant(cf => cf.ByName(labelText));
@@ -833,209 +1178,15 @@ namespace HRMITestFlaUI.Pages.Setup
             Keyboard.Type(textToType);
         }
 
-        /// <summary>
-        /// เซ็ตข้อความแบบ Hybrid ป้องกันข้อความไม่ลง และรองรับสตริงที่มีเว้นวรรค
-        /// </summary>
-        private static void SetTextDirectly(AutomationElement? element, string text)
+        private static void ClickElementByMouse(AutomationElement element)
         {
-            if (element == null) return;
-
-            try
+            var rect = element.BoundingRectangle;
+            if (rect.IsEmpty)
             {
-                var txt = element.AsTextBox();
-                if (txt != null)
-                {
-                    txt.Focus();
-                    txt.Text = text ?? "";
-                }
-            }
-            catch { }
-
-            // ตรวจสอบว่าข้อความลงจริงหรือไม่ ถ้าไม่ลงให้ยิง Keyboard Native พิมพ์ซ้ำ
-            var currentVal = element.Patterns.Value.IsSupported ? element.Patterns.Value.Pattern.Value.ValueOrDefault : "";
-            if (!string.IsNullOrEmpty(text) && currentVal != text)
-            {
-                ClickElementByMouse(element);
                 element.Focus();
-
-                Keyboard.Press(VirtualKeyShort.CONTROL);
-                Keyboard.Type("a");
-                Keyboard.Release(VirtualKeyShort.CONTROL);
-                Keyboard.Press(VirtualKeyShort.BACK);
-                Keyboard.Press(VirtualKeyShort.DELETE);
-
-                Keyboard.Type(text);
+                return;
             }
-            else if (string.IsNullOrEmpty(text) && !string.IsNullOrEmpty(currentVal))
-            {
-                ClickElementByMouse(element);
-                element.Focus();
-
-                Keyboard.Press(VirtualKeyShort.CONTROL);
-                Keyboard.Type("a");
-                Keyboard.Release(VirtualKeyShort.CONTROL);
-                Keyboard.Press(VirtualKeyShort.BACK);
-                Keyboard.Press(VirtualKeyShort.DELETE);
-            }
-
-            // Tab ออกเสมอเพื่อ Trigger Event Validating
-            Keyboard.Press(VirtualKeyShort.TAB);
-            Keyboard.Release(VirtualKeyShort.TAB);
-        }
-
-        private static void TickCheckboxInPopup(Window popup, string automationId, bool targetState, string fallbackName)
-        {
-            var chk = popup.FindFirstDescendant(cf => cf.ByAutomationId(automationId))
-                   ?? popup.FindFirstDescendant(cf => cf.ByName(fallbackName));
-            if (chk == null) return;
-
-            bool currentState = chk.Patterns.Toggle.IsSupported
-                ? chk.Patterns.Toggle.Pattern.ToggleState.Value == ToggleState.On
-                : (chk.AsCheckBox()?.IsChecked ?? false);
-
-            if (currentState != targetState)
-            {
-                ClickElementByMouse(chk);
-            }
-        }
-
-        private Window? FindGroupSetupPopupWindow(Window form)
-        {
-            return Retry(() =>
-                form.ModalWindows.FirstOrDefault(w => w.Name.Contains("กำหนดปฏิทินแบบกลุ่ม"))
-                ?? _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault(w => w.Name.Contains("กำหนดปฏิทินแบบกลุ่ม"))
-                ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByName("กำหนดปฏิทินแบบกลุ่ม"))?.AsWindow(),
-                timeoutMs: 4000);
-        }
-
-        private Window GetOrOpenCalendarForm() => Retry(FindOpenCalendarForm, 1500) ?? OpenCalendarForm();
-
-        private Window OpenCalendarForm()
-        {
-            CloseAnyOpenModalForm();
-            var newBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName("New")), 3000)
-                         ?? throw new Exception("หาปุ่ม New ไม่เจอ");
-
-            ClickElementByMouse(newBtn);
-            var form = Retry(FindOpenCalendarForm, 8000) ?? throw new Exception("หาฟอร์ม กำหนดปฏิทินบริษัท ไม่เจอ");
-            WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId(IdCalendarCode)) != null, 4000);
-            return form;
-        }
-
-        private Window? FindOpenCalendarForm()
-        {
-            var modal = _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault(w =>
-                w.AutomationId == FormId ||
-                w.Name.Contains(FormTitle));
-
-            if (modal != null) return modal;
-
-            return _automation.GetDesktop().FindFirstChild(cf =>
-                cf.ByAutomationId(FormId)
-                .Or(cf.ByName(FormTitle)))?.AsWindow();
-        }
-
-        private Window? TryClickRowAndOpenEditForm(string codeToFind, string testName)
-        {
-            try { return ClickRowAndOpenEditForm(codeToFind, testName); }
-            catch { return null; }
-        }
-
-        private Window ClickRowAndOpenEditForm(string codeToFind, string testName)
-        {
-            AutomationElement? row = Retry(() => FindGridElement(codeToFind), timeoutMs: 4000);
-            if (row == null)
-            {
-                RefreshGrid();
-                row = Retry(() => FindGridElement(codeToFind), timeoutMs: 4000)
-                      ?? throw new Exception($"หาแถว '{codeToFind}' ไม่เจอ");
-            }
-
-            WaitUntil(() => { try { row.Focus(); return true; } catch { return false; } }, 1000);
-            ClickElementByMouse(row);
-
-            var editButton = Retry(() =>
-            {
-                var b = _mainWindow.FindFirstDescendant(cf => cf.ByName("Edit"));
-                return (b != null && b.Properties.IsEnabled.ValueOrDefault) ? b : null;
-            }, 3000) ?? throw new Exception("หาปุ่ม Edit ไม่เจอ");
-
-            ClickElementByMouse(editButton);
-            var form = Retry(FindOpenCalendarForm, 6000) ?? throw new Exception("หาฟอร์ม ไม่เจอ");
-            WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId(IdCalendarCode)) != null, 3000);
-            return form;
-        }
-
-        private bool TrySaveAndHandleDuplicate(Window form, string testName, string code, string saveButtonName)
-        {
-            ClickFormButton(form, saveButtonName);
-
-            if (testName.Contains("Validation")) return true;
-
-            string? warningReason = TryDetectAnyTaskResultWarning(form, timeoutMs: 1500);
-            if (warningReason == null) return true;
-
-            LogFailureCounted(testName, $"'{code}' บันทึกไม่สำเร็จ: {warningReason}");
-            try { ClickCloseAndHandleDialog(form, "No", $"{testName}_Close"); } catch { }
-            return false;
-        }
-
-        /// <summary>
-        /// [ปรับปรุง] กรอก Code/Name แบบอ่านค่ากลับมายืนยัน, เก็บ baseline ของ Task Result ก่อนกด Save,
-        /// แล้วรอให้พาเนลเปลี่ยนก่อนตรวจ เพื่อไม่ให้ไปอ่านข้อความค้างของเคสก่อนหน้า
-        /// </summary>
-        private void FillAndSaveThenAssert(ref Window form, string code, string name,
-            string saveButtonName, string testName, params string[] expectedMessages)
-        {
-            if (form == null || !form.IsAvailable || (form.Properties.IsOffscreen.IsSupported && form.Properties.IsOffscreen.ValueOrDefault))
-            {
-                form = FindOpenCalendarForm() ?? OpenCalendarForm();
-            }
-
-            SwitchToGeneralTab(form);
-
-            FillTextBoxVerified(form, IdCalendarCode, code);
-            FillTextBoxVerified(form, IdCalendarName, name);
-
-            var baseline = ReadTaskResultOnce(form);
-
-            ClickFormButton(form, saveButtonName);
-
-            Window formLocal = form;
-            WaitUntil(() => !ReadTaskResultOnce(formLocal).OrderBy(x => x).SequenceEqual(baseline.OrderBy(x => x)), 2000);
-
-            var pending = new HashSet<string>(expectedMessages);
-            var sw = Stopwatch.StartNew();
-
-            while (sw.ElapsedMilliseconds < 5000 && pending.Count > 0)
-            {
-                var currentTexts = ReadTaskResultOnce(form);
-                foreach (var expected in pending.ToList())
-                {
-                    string cleanExpected = expected.Trim(' ', ';', '\r', '\n');
-                    if (currentTexts.Any(m => m.Trim(' ', ';').Contains(cleanExpected) || cleanExpected.Contains(m.Trim(' ', ';'))))
-                    {
-                        pending.Remove(expected);
-                    }
-                }
-                if (pending.Count == 0) break;
-            }
-
-            if (pending.Count > 0)
-            {
-                var lastSeen = ReadTaskResultOnce(form);
-                string foundList = lastSeen.Count > 0 ? string.Join(" | ", lastSeen) : "(ไม่พบข้อความใดๆ ใน Task Result)";
-                throw new Exception($"ไม่พบข้อความแจ้งเตือน: '{string.Join("', '", pending)}' (ข้อความที่เจอจริง: {foundList})");
-            }
-
-            string formattedList = string.Join(",", expectedMessages.Select(m => $"'{m}'"));
-            LogSuccessCounted(testName, $"พบข้อความ: {formattedList}");
-
-            var currentOpen = FindOpenCalendarForm();
-            if (currentOpen != null)
-            {
-                form = currentOpen;
-            }
+            Mouse.Click(new Point(rect.Left + (rect.Width / 2), rect.Top + (rect.Height / 2)));
         }
 
         private static void ClickFormButton(Window form, string buttonName, int timeoutMs = 3000)
@@ -1048,34 +1199,13 @@ namespace HRMITestFlaUI.Pages.Setup
         private static void ClickFormCloseButton(Window form)
         {
             var closeBtn = form.FindAllDescendants(cf => cf.ByControlType(ControlType.Button).And(cf.ByName("Close")))
-                                             .FirstOrDefault(b => b.Properties.IsEnabled.ValueOrDefault)
+                               .FirstOrDefault(b => b.Properties.IsEnabled.ValueOrDefault)
                            ?? form.FindFirstDescendant(cf => cf.ByName("Close"));
 
             if (closeBtn == null) throw new Exception("หาปุ่ม Close บนฟอร์มหลักไม่เจอ");
             ClickElementByMouse(closeBtn);
         }
 
-        private static readonly HashSet<string> IgnoredTaskResultTexts = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "Static", "Task Result", "Header Panel", "Column Headers", "Exception Severity Pict",
-            "Exception Severity Picture", "ExceptionSeverityToolBar", "Data Panel", "Dock Top",
-            "0 Errors", "0 Informations", "More Information", "Description", "Severity",
-            "Message", "Details", "Type", "Source", "Date", "Time", "Column1", ""
-        };
-
-        private static bool ContainsThai(string text)
-        {
-            if (string.IsNullOrEmpty(text)) return false;
-            foreach (char c in text)
-            {
-                if (c >= '\u0E00' && c <= '\u0E7F') return true;
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// [เพิ่มใหม่] อ่านข้อความใน Task Result "รอบเดียว" (ไม่รอ ไม่วนซ้ำ) คืน list ว่างถ้าพาเนลยังไม่แสดง
-        /// </summary>
         private List<string> ReadTaskResultOnce(Window form)
         {
             var messages = new List<string>();
@@ -1110,78 +1240,25 @@ namespace HRMITestFlaUI.Pages.Setup
             return messages.Distinct().ToList();
         }
 
-        private List<string> GetTaskResultMessages(Window form, int timeoutMs)
+        private string? TryDetectAnyTaskResultWarning(Window form, int timeoutMs = 1500)
         {
             var sw = Stopwatch.StartNew();
             while (sw.ElapsedMilliseconds < timeoutMs)
             {
                 var m = ReadTaskResultOnce(form);
-                if (m.Count > 0) return m;
+                if (m.Count > 0) return m.FirstOrDefault();
             }
-
-            return new List<string>();
+            return null;
         }
 
-        private string? TryDetectAnyTaskResultWarning(Window form, int timeoutMs = 1500)
+        private static bool ContainsThai(string text)
         {
-            return GetTaskResultMessages(form, timeoutMs).FirstOrDefault();
-        }
-
-        private static void FillTextBox(AutomationElement context, string automationId, string value)
-        {
-            var el = context.FindFirstDescendant(cf => cf.ByAutomationId(automationId))
-                  ?? (automationId == IdCalendarName ? context.FindFirstDescendant(cf => cf.ByAutomationId(IdCalendarNameAlt)) : null);
-
-            if (el != null) SetTextDirectly(el, value);
-        }
-
-        /// <summary>
-        /// [เพิ่มใหม่] อ่านค่าข้อความปัจจุบันของช่องกรอก
-        /// </summary>
-        private static string ReadText(AutomationElement el)
-        {
-            try { if (el.Patterns.Value.IsSupported) return el.Patterns.Value.Pattern.Value.ValueOrDefault ?? ""; } catch { }
-            try { return el.AsTextBox()?.Text ?? ""; } catch { }
-            return "";
-        }
-
-        /// <summary>
-        /// [เพิ่มใหม่] กรอกข้อความแล้วอ่านกลับมาเทียบ ถ้าไม่ตรงจะลองกรอกซ้ำ (สูงสุด maxTry รอบ)
-        /// ใช้เฉพาะใน FillAndSaveThenAssert เพื่อไม่กระทบขั้นตอนอื่น
-        /// </summary>
-        private static void FillTextBoxVerified(AutomationElement context, string automationId, string value, int maxTry = 3)
-        {
-            for (int i = 0; i < maxTry; i++)
+            if (string.IsNullOrEmpty(text)) return false;
+            foreach (char c in text)
             {
-                FillTextBox(context, automationId, value ?? "");
-
-                var el = context.FindFirstDescendant(cf => cf.ByAutomationId(automationId))
-                      ?? (automationId == IdCalendarName ? context.FindFirstDescendant(cf => cf.ByAutomationId(IdCalendarNameAlt)) : null);
-                if (el == null) return;
-
-                if (ReadText(el).Trim() == (value ?? "").Trim()) return;
+                if (c >= '\u0E00' && c <= '\u0E7F') return true;
             }
-        }
-
-        private static void ClickElementByMouse(AutomationElement element)
-        {
-            var rect = element.BoundingRectangle;
-            if (rect.IsEmpty)
-            {
-                element.Focus();
-                return;
-            }
-            Mouse.Click(new Point(rect.Left + (rect.Width / 2), rect.Top + (rect.Height / 2)));
-        }
-
-        private AutomationElement? FindGridElement(string val)
-        {
-            if (string.IsNullOrWhiteSpace(val)) return null;
-
-            return _mainWindow.FindAllDescendants().FirstOrDefault(el =>
-                (!string.IsNullOrEmpty(el.Name) && el.Name.Trim().IndexOf(val, StringComparison.OrdinalIgnoreCase) >= 0) ||
-                (el.Patterns.Value.IsSupported && el.Patterns.Value.Pattern.Value.Value != null &&
-                 el.Patterns.Value.Pattern.Value.Value.Trim().IndexOf(val, StringComparison.OrdinalIgnoreCase) >= 0));
+            return false;
         }
 
         private void CloseAnyOpenModalForm()
@@ -1200,93 +1277,6 @@ namespace HRMITestFlaUI.Pages.Setup
                 }
             }
             catch { }
-        }
-
-        private (string TestName, string ExistingCode, string NewCode, string NewName)? PerformEdit(
-            string testName, string existingCode, string newCode, string newNameTh, string newNameEn,
-            string saveButtonName, bool needsExplicitClose)
-        {
-            try
-            {
-                var form = ClickRowAndOpenEditForm(existingCode, testName);
-                SwitchToGeneralTab(form);
-
-                FillTextBox(form, IdCalendarCode, newCode);
-                FillTextBox(form, IdCalendarName, newNameTh);
-                FillTextBox(form, IdCalendarNameEng, newNameEn);
-
-                ClickFormButton(form, saveButtonName);
-
-                string? saveWarning = TryDetectAnyTaskResultWarning(form, timeoutMs: 1200);
-                if (saveWarning != null)
-                {
-                    LogFailureCounted(testName, $"แก้ไข {existingCode} เป็น {newCode} ไม่สำเร็จ: {saveWarning}");
-                    try { ClickCloseAndHandleDialog(form, "No", $"{testName}_Close"); } catch { }
-                    return null;
-                }
-
-                if (needsExplicitClose)
-                {
-                    ClickFormCloseButton(form);
-                    HandleConfirmDialogIfPresent("Yes", form);
-                    WaitForClosed(() => FindOpenCalendarForm());
-                }
-                else
-                {
-                    WaitForClosed(() => FindOpenCalendarForm());
-                }
-
-                RefreshGrid();
-                bool found = Retry(() => FindGridElement(newCode), timeoutMs: 3000) != null;
-                if (found)
-                    LogSuccessCounted(testName, $"แก้ไข '{existingCode}' เป็น '{newCode}' สำเร็จ (พบในตารางหลัก)");
-                else
-                    LogFailureCounted(testName, $"แก้ไข '{existingCode}' เป็น '{newCode}' แล้วแต่ไม่พบในตารางหลัก");
-
-                return (testName, existingCode, newCode, newNameTh);
-            }
-            catch (Exception ex)
-            {
-                LogFailureCounted(testName, $"แก้ไข '{existingCode}' ไม่สำเร็จ: {ex.Message}");
-                return null;
-            }
-        }
-
-        private void RunValidationStep(string testName, Action stepAction)
-        {
-            try { stepAction(); }
-            catch (Exception ex) { LogFailureCounted(testName, $"ไม่ผ่าน: {ex.Message}"); }
-        }
-
-        private void AssertTaskResultMultipleWarningsAndFormOpen(Window form, string[] expectedMessages, string testName)
-        {
-            var pending = new HashSet<string>(expectedMessages);
-            var sw = Stopwatch.StartNew();
-
-            while (sw.ElapsedMilliseconds < 5000 && pending.Count > 0)
-            {
-                var currentTexts = ReadTaskResultOnce(form);
-                foreach (var expected in pending.ToList())
-                {
-                    string cleanExpected = expected.Trim(' ', ';', '\r', '\n');
-                    if (currentTexts.Any(m => m.Trim(' ', ';').Contains(cleanExpected) || cleanExpected.Contains(m.Trim(' ', ';'))))
-                    {
-                        pending.Remove(expected);
-                    }
-                }
-                if (pending.Count == 0) break;
-            }
-
-            bool isOpen = WaitUntil(() => !form.Properties.IsOffscreen.ValueOrDefault && form.IsAvailable, 2000);
-            if (pending.Count > 0 || !isOpen)
-            {
-                var lastSeen = ReadTaskResultOnce(form);
-                string foundList = lastSeen.Count > 0 ? string.Join(" | ", lastSeen) : "(ไม่พบข้อความใดๆ ใน Task Result)";
-                throw new Exception($"ตรวจสอบไม่ผ่าน:'{string.Join("', '", expectedMessages)}' (พบจริง: {foundList}, ฟอร์มเปิดอยู่: {isOpen})");
-            }
-
-            string formattedList = string.Join(",", expectedMessages.Select(m => $"'{m}'"));
-            LogSuccessCounted(testName, $"พบข้อความ: {formattedList} และ ฟอร์มถูกเปิดอยู่");
         }
 
         private void ClickCloseAndHandleDialog(Window form, string dialogChoice, string testName)
@@ -1345,6 +1335,37 @@ namespace HRMITestFlaUI.Pages.Setup
                             .Equals(label, StringComparison.OrdinalIgnoreCase));
         }
 
+        private void AssertTaskResultMultipleWarningsAndFormOpen(Window form, string[] expectedMessages, string testName)
+        {
+            var pending = new HashSet<string>(expectedMessages);
+            var sw = Stopwatch.StartNew();
+
+            while (sw.ElapsedMilliseconds < 5000 && pending.Count > 0)
+            {
+                var currentTexts = ReadTaskResultOnce(form);
+                foreach (var expected in pending.ToList())
+                {
+                    string cleanExpected = expected.Trim(' ', ';', '\r', '\n');
+                    if (currentTexts.Any(m => m.Trim(' ', ';').Contains(cleanExpected) || cleanExpected.Contains(m.Trim(' ', ';'))))
+                    {
+                        pending.Remove(expected);
+                    }
+                }
+                if (pending.Count == 0) break;
+            }
+
+            bool isOpen = WaitUntil(() => !form.Properties.IsOffscreen.ValueOrDefault && form.IsAvailable, 2000);
+            if (pending.Count > 0 || !isOpen)
+            {
+                var lastSeen = ReadTaskResultOnce(form);
+                string foundList = lastSeen.Count > 0 ? string.Join(" | ", lastSeen) : "(ไม่พบข้อความใดๆ ใน Task Result)";
+                throw new Exception($"ตรวจสอบไม่ผ่าน:'{string.Join("', '", expectedMessages)}' (พบจริง: {foundList}, ฟอร์มเปิดอยู่: {isOpen})");
+            }
+
+            string formattedList = string.Join(",", expectedMessages.Select(m => $"'{m}'"));
+            LogSuccessCounted(testName, $"พบข้อความ: {formattedList} และ ฟอร์มถูกเปิดอยู่");
+        }
+
         private void AssertFormStillOpen(Window form, string testName)
         {
             bool isOpen = WaitUntil(() => !form.Properties.IsOffscreen.ValueOrDefault && form.IsAvailable, 2000);
@@ -1359,47 +1380,14 @@ namespace HRMITestFlaUI.Pages.Setup
             else LogFailureCounted(testName, "ปิดฟอร์มไม่สำเร็จ");
         }
 
-        private void RunDeleteCaseByCode(string testName, string codeToTarget, string confirmButton, bool expectDeleted)
+        private AutomationElement? FindGridElement(string val)
         {
-            try
-            {
-                RefreshGrid();
+            if (string.IsNullOrWhiteSpace(val)) return null;
 
-                var targetRow = Retry(() => FindGridElement(codeToTarget), timeoutMs: 3000)
-                    ?? throw new Exception($"ไม่พบรายการ '{codeToTarget}' บน Grid");
-
-                WaitUntil(() => { try { targetRow.Focus(); return true; } catch { return false; } }, 1000);
-                ClickElementByMouse(targetRow);
-
-                var deleteBtn = Retry(() =>
-                {
-                    var b = _mainWindow.FindFirstDescendant(cf => cf.ByName("Delete"));
-                    return (b != null && b.Properties.IsEnabled.ValueOrDefault) ? b : null;
-                }, timeoutMs: 3000) ?? throw new Exception("หาปุ่ม Delete ไม่เจอ");
-
-                ClickElementByMouse(deleteBtn);
-
-                HandleConfirmDialogIfPresent(confirmButton, _mainWindow.AsWindow()!);
-
-                bool stillExists = Retry(() => FindGridElement(codeToTarget), timeoutMs: 3000) != null;
-
-                if (expectDeleted && !stillExists)
-                {
-                    LogSuccessCounted(testName, $"'{codeToTarget}' ถูกลบสำเร็จ");
-                }
-                else if (!expectDeleted && stillExists)
-                {
-                    LogSuccessCounted(testName, $"'{codeToTarget}' ข้อมูลยังไม่ถูกลบ");
-                }
-                else
-                {
-                    LogFailureCounted(testName, $"ผลการลบ '{codeToTarget}' ไม่ตรงตามคาด (expectDeleted={expectDeleted}, stillExists={stillExists})");
-                }
-            }
-            catch (Exception ex)
-            {
-                LogFailureCounted(testName, $"ลบ '{codeToTarget}' ไม่สำเร็จ: {ex.Message}");
-            }
+            return _mainWindow.FindAllDescendants().FirstOrDefault(el =>
+                (!string.IsNullOrEmpty(el.Name) && el.Name.Trim().IndexOf(val, StringComparison.OrdinalIgnoreCase) >= 0) ||
+                (el.Patterns.Value.IsSupported && el.Patterns.Value.Pattern.Value.Value != null &&
+                 el.Patterns.Value.Pattern.Value.Value.Trim().IndexOf(val, StringComparison.OrdinalIgnoreCase) >= 0));
         }
 
         private void RefreshGrid()
@@ -1423,9 +1411,10 @@ namespace HRMITestFlaUI.Pages.Setup
             catch { }
         }
 
-        private static void TryAdd<T>(List<T> list, T? item) where T : struct
+        private void RunValidationStep(string testName, Action stepAction)
         {
-            if (item.HasValue) list.Add(item.Value);
+            try { stepAction(); }
+            catch (Exception ex) { LogFailureCounted(testName, $"ไม่ผ่าน: {ex.Message}"); }
         }
 
         private void LogSuccessCounted(string testName, string message)

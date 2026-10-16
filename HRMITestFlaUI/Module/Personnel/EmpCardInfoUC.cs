@@ -52,18 +52,38 @@ namespace HRMITestFlaUI.Pages.Personnel
                 "Save and New",
                 false),
             new(
-                CardTypeTemp,
+                CardTypeReal,
                 "EMP0005",
                 "Save and New",
                 false),
             new(
-                CardTypeTemp,
+                CardTypeReal,
                 "EMP0006",
                 "Save and New",
                 false),
             new(
-                CardTypeTemp,
+                CardTypeReal,
                 "EMP0007",
+                "Save and New",
+                false),
+            new(
+                CardTypeReal,
+                "EMP0008",
+                "Save and New",
+                false),
+            new(
+                CardTypeReal,
+                "EMP0009",
+                "Save and New",
+                false),
+            new(
+                CardTypeTemp,
+                "EMP0010",
+                "Save and New",
+                false),
+            new(
+                CardTypeTemp,
+                "EMP0011",
                 "Save and Close",
                 false)
         };
@@ -88,22 +108,21 @@ namespace HRMITestFlaUI.Pages.Personnel
         private const string CardNoFieldId = "devTxtLastedCardNo";    // หมายเลขบัตร
 
         /// <summary>
-        /// ขั้นที่ 1: เปิดหน้าจอและกรอกข้อมูลสร้างใหม่
+        /// ขั้นที่ 1: เปิดหน้าจอและกรอกข้อมูลสร้างใหม่ (หน้าจอนี้มีแค่ขั้นนี้ จึงสรุปผลรวมตอนจบขั้น)
         /// </summary>
         public void NavigateToEmpCardInfoUC()
         {
-            const string stageName = "TestCase00_AddEmpCardInfo";
-            TestLogger.LogInfo(ScreenLogName, $"เริ่มทดสอบหน้าจอ {MenuName}");
+            const string stageName = "TestCase01_AddNewEmpCard";
+            TestLogger.LogInfo(ScreenLogName, $"เริ่มทดสอบ{MenuName} ({Step1_AddCases.Length} รายการ)");
             TestProgressHelper.Report(2, $"Opening Personnel -> {MenuName} Menu via Search...");
 
-            if (!TryOpenMenu(stageName, MenuName)) return;
+            if (!TryOpenMenu(stageName, MenuName)) { LogTotalSummary(); return; }
 
             Window? form = null;
             for (int i = 0; i < Step1_AddCases.Length; i++)
             {
                 var item = Step1_AddCases[i];
                 string testName = $"{stageName}_{item.CardNo}";
-                // หน้านี้มี 7 รายการ จึงเฉลี่ย Progress ให้อยู่ในช่วง 4 -> 20
                 TestProgressHelper.Report(4 + (i * 16 / Step1_AddCases.Length), $"Adding {MenuName} ({i + 1}/{Step1_AddCases.Length}): {item.CardNo} - {item.CardType}...");
 
                 try
@@ -120,23 +139,37 @@ namespace HRMITestFlaUI.Pages.Personnel
 
                     if (item.SaveBtn == "Save and New")
                     {
-                        WaitUntil(() => string.IsNullOrEmpty(tab.FindFirstDescendant(cf => cf.ByAutomationId(FirstObjectID))?.AsTextBox().Text), 3000);
-                        LogSuccess(testName, $"'{item.CardNo}' บันทึกสำเร็จ (Save and New)");
+                        if (WaitUntil(() => IsFormCleared(item.CardNo), 8000))
+                            LogSuccess(testName, $"'{item.CardNo}' บันทึกสำเร็จ (Save and New)");
+                        else
+                        {
+                            LogFailure(testName, $"'{item.CardNo}' กด Save and New แล้วฟอร์มไม่ถูกเคลียร์ (บันทึกไม่สำเร็จ)");
+                            AbortForm(form);
+                            form = null;
+                        }
                     }
                     else
                     {
                         if (item.NeedsManualClose) form.FindFirstDescendant(cf => cf.ByName("Close"))?.Click();
-                        WaitForClosed(() => FindOpenForm());
+                        if (WaitForClosed(() => FindOpenForm()))
+                            LogGridResult(testName, item.CardNo);
+                        else
+                        {
+                            LogFailure(testName, $"'{item.CardNo}' กด {item.SaveBtn} แล้วฟอร์มไม่ปิด (บันทึกไม่สำเร็จ)");
+                            AbortForm(form);
+                        }
                         form = null;
-                        LogGridResult(testName, item.CardNo);
                     }
                 }
                 catch (Exception ex)
                 {
                     LogFailure(testName, $"'{item.CardNo}' เพิ่มไม่สำเร็จ: {ex.Message}");
+                    AbortForm(form);
                     form = null;
                 }
             }
+
+            LogTotalSummary();
         }
 
         /// <summary>
@@ -164,12 +197,11 @@ namespace HRMITestFlaUI.Pages.Personnel
         }
 
         /// <summary>
-        /// ขั้นที่ 5: ทดสอบการลบรายการในตาราง (ยังไม่มี Test Step ใน Excel) — สรุปผลรวมไว้ที่ขั้นนี้แบบ BANK
+        /// ขั้นที่ 5: ทดสอบการลบรายการในตาราง (ยังไม่มี Test Step ใน Excel)
         /// </summary>
         public void RunDeleteTests()
         {
             TestProgressHelper.Report(100, "Delete: no test steps...");
-            TestLogger.LogInfo(ScreenLogName, $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
         }
 
         // --- Custom Mapping Logic ประจำหน้าจอนี้ ---
@@ -194,7 +226,6 @@ namespace HRMITestFlaUI.Pages.Personnel
 
         // --- Dropdown ประเภทบัตร (เฉพาะหน้าจอนี้) ---
 
-        /* คลิกลูกศร ▼ ที่ขอบขวาของช่อง → รอรายการใน popup → คลิก → รอจนค่าในช่องเปลี่ยนจริง */
         private void SelectCardType(Window form, string cardType)
         {
             var combo = Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(CardTypeFieldId)), 8000)
@@ -234,7 +265,6 @@ namespace HRMITestFlaUI.Pages.Personnel
             throw new Exception($"เลือกประเภทบัตร '{cardType}' ไม่ติด (ค่าในช่องตอนนี้: '{ReadText(combo)}')");
         }
 
-        /* หาตัวเลือกใน popup ของ dropdown (หน้าต่างของ process เดียวกันที่ไม่ใช่ฟอร์มและหน้าจอหลัก) */
         private AutomationElement? FindDropdownItem(Window form, string text)
         {
             int pid = _mainWindow.Properties.ProcessId.ValueOrDefault;
@@ -253,7 +283,6 @@ namespace HRMITestFlaUI.Pages.Personnel
             return null;
         }
 
-        /* อ่านค่าจริงของ element (Value ก่อน แล้วค่อย Name) */
         private static string ReadText(AutomationElement e)
         {
             try { if (e.Patterns.Value.IsSupported && !string.IsNullOrWhiteSpace(e.Patterns.Value.Pattern.Value.Value)) return e.Patterns.Value.Pattern.Value.Value.Trim(); } catch { }
@@ -312,7 +341,7 @@ namespace HRMITestFlaUI.Pages.Personnel
 
         private void RunDeleteCase(string baseName, string code, string btn, bool expectDeleted)
         {
-            string testName = $"{baseName}_{code}_{btn}";
+            string testName = $"{baseName}_Delete{btn}";
             try
             {
                 RefreshGrid();
@@ -337,18 +366,18 @@ namespace HRMITestFlaUI.Pages.Personnel
                 bool exists = VerifyRecordInGrid(code, timeoutMs: 3000, refresh: false);
                 if (expectDeleted)
                 {
-                    if (exists) { LogFailure(testName, $"'{code}' ลบข้อมูลไม่สำเร็จ"); throw new Exception(); }
-                    LogSuccess(testName, $"'{code}' ถูกลบสำเร็จ");
+                    if (exists) { LogFailure(testName, $"ลบข้อมูล '{code}' (Delete -> {btn}) ไม่สำเร็จ: ข้อมูลยังอยู่ในตาราง"); return; }
+                    LogSuccess(testName, $"ลบข้อมูล '{code}' (Delete -> {btn}) สำเร็จ");
                 }
                 else
                 {
-                    if (!exists) { LogFailure(testName, $"'{code}' ลบข้อมูลผิดพลาด"); throw new Exception(); }
-                    LogSuccess(testName, $"'{code}' ข้อมูลยังไม่ถูกลบ");
+                    if (!exists) { LogFailure(testName, $"ยกเลิกการลบข้อมูล '{code}' (Delete -> {btn}) ไม่สำเร็จ: ข้อมูลหายจากตาราง"); return; }
+                    LogSuccess(testName, $"ยกเลิกการลบข้อมูล '{code}' (Delete -> {btn}) ข้อมูลยังคงอยู่สำเร็จ");
                 }
             }
-            catch (Exception ex) when (!string.IsNullOrEmpty(ex.Message))
+            catch (Exception ex)
             {
-                LogFailure(testName, $"ลบรหัส '{code}' ไม่สำเร็จ: {ex.Message}");
+                LogFailure(testName, $"ลบข้อมูล '{code}' (Delete -> {btn}) ไม่สำเร็จ: {ex.Message}");
             }
         }
 
@@ -414,8 +443,8 @@ namespace HRMITestFlaUI.Pages.Personnel
             Keyboard.Press(VirtualKeyShort.CONTROL);
             Keyboard.Type("a");
             Keyboard.Release(VirtualKeyShort.CONTROL);
-            Keyboard.Press(VirtualKeyShort.BACK);
-            Keyboard.Press(VirtualKeyShort.DELETE);
+            Keyboard.Type(VirtualKeyShort.BACK);
+            Keyboard.Type(VirtualKeyShort.DELETE);
 
             if (!string.IsNullOrEmpty(text)) Keyboard.Type(text);
         }
@@ -427,36 +456,85 @@ namespace HRMITestFlaUI.Pages.Personnel
 
         private bool TrySaveAndHandleDuplicate(Window form, string testName, string code, string saveBtn)
         {
+            var before = ReadTaskResultTexts(form, 300);
+
+            saveBtn = saveBtn.Trim();
             var btn = form.FindFirstDescendant(cf => cf.ByName(saveBtn)) ?? throw new Exception($"ไม่พบปุ่ม {saveBtn}");
             btn.Click();
 
             if (testName.Contains("Validation") || testName.Contains("Duplicate")) return true;
 
-            var panel = FindTaskResultPanel(form, 1500);
-            if (panel == null) return true;
+            string? error = null;
+            WaitUntil(() =>
+            {
+                if (!IsAlive(form) || IsFormCleared(code)) return true;
+                var fresh = ReadTaskResultTexts(form, 300).Where(t => !before.Contains(t)).ToList();
+                error = DetectDuplicateMessage(fresh) is string dup ? $"ข้อมูลซ้ำ: {dup}" : DetectSaveError(fresh);
+                return error != null;
+            }, 2000);
 
-            string? dup = DetectDuplicateMessage(GetPanelTexts(panel));
-            if (dup == null) return true;
+            if (error == null) return true;
 
-            LogFailure(testName, $"'{code}' ข้อมูลซ้ำ: {dup}");
-            try { ClickCloseAndHandleDialog(form, "No", $"{testName}_Close"); } catch { }
+            LogFailure(testName, $"'{code}' บันทึกไม่สำเร็จ: {error}");
+            AbortForm(form);
             return false;
+        }
+
+        private HashSet<string> ReadTaskResultTexts(Window form, int timeoutMs)
+        {
+            try
+            {
+                if (!IsAlive(form)) return new HashSet<string>();
+                var panel = FindTaskResultPanel(form, timeoutMs);
+                return panel == null ? new HashSet<string>() : new HashSet<string>(GetPanelTexts(panel));
+            }
+            catch { return new HashSet<string>(); }
+        }
+
+        private static string? DetectSaveError(IEnumerable<string> texts) =>
+            texts.FirstOrDefault(t => t.Contains("ไม่สามารถ") || t.Contains("ห้ามซ้ำ") || t.Contains("ต้องมีอย่างน้อย")
+                                      || t.Contains("กรุณาป้อน") || t.Contains("ไม่ถูกต้อง") || t.Contains("ผิดพลาด"));
+
+        private bool IsFormCleared(string typedCardNo)
+        {
+            var el = FindOpenForm()?.FindFirstDescendant(cf => cf.ByAutomationId(FirstObjectID));
+            if (el == null) return false;
+            string now = (el.AsTextBox().Text ?? "").Trim();
+            return now.Length == 0 || !string.Equals(now, typedCardNo, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsAlive(Window form)
+        {
+            try { return form.IsAvailable && !form.Properties.IsOffscreen.ValueOrDefault; }
+            catch { return false; }
+        }
+
+        private void AbortForm(Window? form)
+        {
+            try
+            {
+                form ??= FindOpenForm();
+                if (form == null || !IsAlive(form)) return;
+                try { ClickCloseAndHandleDialog(form, "No", "AbortForm"); } catch { }
+                WaitForClosed(() => FindOpenForm(), 3000);
+            }
+            catch { }
         }
 
         private void RunCloseDialogSequence(Window form, string prefix, string expectedMsg)
         {
-            string ySub = $"{prefix}_Close_Yes";
+            string ySub = $"{prefix}_CloseYes";
             ClickCloseAndHandleDialog(form, "Yes", ySub);
-            AssertTaskResult(form, new[] { expectedMsg }, ySub, $"พบข้อความ: '{expectedMsg}' และ ฟอร์มถูกเปิดอยู่");
             CheckFormOpenOnly(form);
+            AssertTaskResult(form, new[] { expectedMsg }, ySub, "ทดสอบกด Close -> Yes สำเร็จ");
 
-            string cSub = $"{prefix}_Close_Cancel";
+            string cSub = $"{prefix}_CloseCancel";
             ClickCloseAndHandleDialog(form, "Cancel", cSub);
-            AssertFormOpen(form, cSub);
+            AssertFormOpen(form, cSub, "ทดสอบกด Close -> Cancel หน้าต่างยังคงเปิดอยู่สำเร็จ");
 
-            string nSub = $"{prefix}_Close_No";
+            string nSub = $"{prefix}_CloseNo";
             ClickCloseAndHandleDialog(form, "No", nSub);
-            AssertFormClosed(form, nSub);
+            AssertFormClosed(form, nSub, "ทดสอบกด Close -> No ปิดหน้าจอสำเร็จ");
         }
 
         private void ClickCloseAndHandleDialog(Window form, string btnName, string testName)
@@ -484,17 +562,17 @@ namespace HRMITestFlaUI.Pages.Personnel
                 throw new Exception("ฟอร์มถูกปิด");
         }
 
-        private void AssertFormOpen(Window form, string testName)
+        private void AssertFormOpen(Window form, string testName, string? customMsg = null)
         {
             CheckFormOpenOnly(form);
-            LogSuccess(testName, "ฟอร์มถูกเปิดอยู่");
+            LogSuccess(testName, customMsg ?? "ฟอร์มถูกเปิดอยู่");
         }
 
-        private void AssertFormClosed(Window form, string testName)
+        private void AssertFormClosed(Window form, string testName, string? customMsg = null)
         {
             if (!WaitUntil(() => form.Properties.IsOffscreen.ValueOrDefault || !form.IsAvailable, 3000))
                 throw new Exception("ปิดฟอร์มไม่สำเร็จ");
-            LogSuccess(testName, "ฟอร์มถูกปิด");
+            LogSuccess(testName, customMsg ?? "ฟอร์มถูกปิด");
         }
 
         private void AssertTaskResult(Window form, string[] msgs, string testName, string? customMsg = null)
@@ -562,6 +640,12 @@ namespace HRMITestFlaUI.Pages.Personnel
             if (VerifyRecordInGrid(code)) LogSuccess(testName, $"'{code}' เพิ่มสำเร็จ (พบในตารางหลัก)");
             else LogFailure(testName, $"'{code}' ไม่พบในตารางหลักหลังบันทึก");
         }
+
+        private void LogTotalSummary() =>
+            TestLogger.LogInfo(ScreenLogName, $"สรุปผลการทดสอบทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
+
+        public int TotalSuccess => _totalSuccess;
+        public int TotalFail => _totalFail;
 
         private void RunStep(string testName, Action act)
         {

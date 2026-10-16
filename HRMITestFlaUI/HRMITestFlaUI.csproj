@@ -17,8 +17,4 @@
     <PackageReference Include="MSTest.TestFramework" Version="4.2.3" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Module\Time Attendance\" />
-  </ItemGroup>
-
 </Project>

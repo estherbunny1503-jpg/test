@@ -17,90 +17,13 @@ namespace HRMITestFlaUI.Module.Setup
 {
     public class PeriodTemplateInfoUC
     {
-        // ── ตัวแปรสำหรับเก็บออบเจ็กต์หน้าต่างหลัก, ระบบ Automation และตัวนับผลการทดสอบ (Success/Fail) ──
-        private readonly AutomationElement _mainWindow;
-        private readonly UIA3Automation _automation;
-
-        private int _totalSuccess = 0;
-        private int _totalFail = 0;
-
-        // ── ค่าคงที่สำหรับการตั้งค่า Timeout และข้อมูลการระบุตัวตนของฟอร์ม ──
-        private const int TimeoutMs = 6000;
-        private const string FormId = "PeriodTemplateInfoUC";
-        private const string FormTitle = "กำหนดรูปแบบงวดการจ่าย";
-
-        // ── AutomationId ยืนยันแล้ว ──
-        private const string IdTxtName = "devTxtName";
-        private const string IdChkChange = "devChkChange";
-        private const string IdTxtRemark = "devTxtRemark";
-        private const string IdBtnAuto = "devBtnAuto";
-        private const string IdChkSpecial = "devChkSpecial";
-        private const string IdChkSpecialOnce = "devChkSpecialOnce";
-
-        // ── Popup AutomationIds ──
-        private const string IdPopupAutoPeriod = "frmOptAutoPeriodTemplate";
-        private const string IdPopupSpinPeriodYear = "devSpinPeriodYear";
-        private const string IdPopupCbxPeriodMonth = "devCbxPeriodMonth";
-        private const string IdPopupBtnCalendarOrg = "devBtnCalendarOrg";
-        private const string IdPopupGcOverMonth = "devGcOverMonth";
-        private const string IdPopupDateStartDate = "devDateStartDate";
-
-        // ── Grid Column Names ──
-        private static readonly string[] ColTaxNames = { "ภาษี", "คำนวณภาษี" };
-        private static readonly string[] ColSocialSecurityNames = { "ประกันสังคม", "คำนวณประกันสังคม" };
-        private static readonly string[] ColProvidentFundNames = { "กองทุนสำรองฯ", "กองทุนสำรอง", "คำนวณกองทุนสำรองฯ" };
-        private static readonly string[] ColWelfareFundNames = { "กองทุนสงเคราะห์ฯ", "กองทุนสงเคราะห์ลูกจ้าง", "คำนวณกองทุนสงเคราะห์ลูกจ้าง" };
-        private static readonly string[] ColClosePeriodNames = { "ปิดงวด" };
-
-        // ── DPI Awareness ──
-        [DllImport("user32.dll", SetLastError = true)]
-        private static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext);
-        [DllImport("user32.dll")]
-        private static extern bool SetProcessDPIAware();
-        private static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
-
-        static PeriodTemplateInfoUC()
-        {
-            try
-            {
-                if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
-                    SetProcessDPIAware();
-            }
-            catch (Exception ex) { Debug.WriteLine($"DPI Awareness failed: {ex.Message}"); }
-        }
-
-        // ── Win32 P/Invoke ──
-        [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
-        [DllImport("user32.dll")] private static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
-        private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
-        private const uint MOUSEEVENTF_LEFTUP = 0x0004;
-        [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
-        [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
-        [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
-        [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
-        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
-        [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr hWnd);
-
-        public PeriodTemplateInfoUC(AutomationElement mainWindow, UIA3Automation automation)
-        {
-            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
-            _automation = automation ?? throw new ArgumentNullException(nameof(automation));
-        }
-
-        private record PeriodTemplateRecord(
-            string Name,
-            bool AdjustDate,
-            string Remark,
-            bool Special,
-            bool SpecialOnce = false,
-            AutoPeriodPopupTestCase? PopupConfig = null,
-            MonthlyCalcTestCase? CalcConfig = null,
-            string SaveAction = "SaveAndNew"
-        );
+        // =========================================================================================
+        // หมวดที่ 1: ข้อมูลการทดสอบทั้ง 5 ขั้น (Test Data)
+        // =========================================================================================
 
         private enum MonthPattern { None, All, First6, Last6, EveryOther }
 
-        private record AutoPeriodPopupTestCase(
+        private sealed record AutoPeriodPopupTestCase(
             string TestName,
             string PeriodYear,
             string TimesPerMonth,
@@ -110,7 +33,7 @@ namespace HRMITestFlaUI.Module.Setup
             string? StartMonthOption,
             string? StartDate);
 
-        private record MonthlyCalcTestCase(
+        private sealed record MonthlyCalcTestCase(
             string TestName,
             MonthPattern Tax,
             MonthPattern SocialSecurity,
@@ -119,115 +42,139 @@ namespace HRMITestFlaUI.Module.Setup
             MonthPattern ClosePeriod,
             string SaveAction);
 
-        // -------------------------------------------------------------
-        // * Navigation & Search System *
-        // -------------------------------------------------------------
-        private bool TryOpenPeriodTemplateInfoMenu(string stage)
+        private sealed record PeriodTemplateRecord(
+            string Name,
+            bool AdjustDate,
+            string Remark,
+            bool Special,
+            bool SpecialOnce = false,
+            AutoPeriodPopupTestCase? PopupConfig = null,
+            MonthlyCalcTestCase? CalcConfig = null,
+            string SaveAction = "SaveAndNew");
+
+        private sealed record PeriodTemplateEditItem(
+            string TestCaseId,
+            string ExistingName,
+            string NewName,
+            Action<Window> EditAction,
+            string SaveButtonName,
+            bool NeedsExplicitClose);
+
+        private sealed record DeleteItem(
+            string TargetName,
+            string DialogBtn,
+            bool ExpectDeleted);
+
+        // [ขั้นที่ 1] ข้อมูลทดสอบการสร้างใหม่ (Add / Navigate)
+        private static readonly PeriodTemplateRecord[] Step1_AddCases =
         {
-            try
+            new(
+                "งวดการจ่าย 1 ครั้ง", AdjustDate: true, Remark: "จ่าย 1 ครั้ง ต่อเดือน", Special: false, SpecialOnce: false,
+                PopupConfig: new AutoPeriodPopupTestCase("Item1", "2569", "1", "จ่ายก่อนวันหยุด", "CAL-TEST-06", false, null, null),
+                CalcConfig: new MonthlyCalcTestCase("Item1", MonthPattern.All, MonthPattern.None, MonthPattern.None, MonthPattern.First6, MonthPattern.None, "Save"),
+                SaveAction: "Save"
+            ),
+            new(
+                "งวดการจ่ายแบบตัดวิกเหลื่อมเดือน", AdjustDate: false, Remark: "งวดการจ่ายวันที่ 21 เดือนก่อน-20เดือนปัจจุบัน", Special: false, SpecialOnce: false,
+                PopupConfig: new AutoPeriodPopupTestCase("Item2", "2569", "1", "จ่ายหลังวันหยุด", "CAL-TEST-06", true, "ตามวันที่เริ่มต้นงวด", "21/01/2569"),
+                CalcConfig: new MonthlyCalcTestCase("Item2", MonthPattern.All, MonthPattern.EveryOther, MonthPattern.Last6, MonthPattern.None, MonthPattern.None, "SaveAndNew"),
+                SaveAction: "SaveAndNew"
+            ),
+            new(
+                "งวดการจ่าย 2 ครั้ง", AdjustDate: false, Remark: "รายวิก / วิกละ 15 วัน", Special: false, SpecialOnce: false,
+                PopupConfig: new AutoPeriodPopupTestCase("Item3", "2569", "2", "ไม่เลื่อนวันจ่าย", null, false, null, null),
+                CalcConfig: new MonthlyCalcTestCase("Item3", MonthPattern.None, MonthPattern.None, MonthPattern.None, MonthPattern.None, MonthPattern.All, "SaveAndNew"),
+                SaveAction: "SaveAndNew"
+            ),
+            new(
+                "งวดพิเศษ", AdjustDate: true, Remark: "งวดพิเศษ", Special: true, SpecialOnce: false,
+                PopupConfig: new AutoPeriodPopupTestCase("Item4", "2569", "3", "ไม่เลื่อนวันจ่าย", null, true, "ตามวันที่สิ้นสุดงวด", "20/1/2569"),
+                CalcConfig: new MonthlyCalcTestCase("Item4", MonthPattern.None, MonthPattern.None, MonthPattern.None, MonthPattern.None, MonthPattern.None, "SaveAndNew"),
+                SaveAction: "SaveAndNew"
+            ),
+            new(
+                "งวดพิเศษสำหรับจ่ายครั้งเดียวเหตุเพราะออกจากงาน", AdjustDate: true, Remark: "งวดพิเศษสำหรับจ่ายครั้งเดียวเหตุเพราะออกจากงาน", Special: true, SpecialOnce: true,
+                PopupConfig: new AutoPeriodPopupTestCase("Item5", "2569", "1", "จ่ายก่อนวันหยุด", null, true, "ตามวันที่เริ่มต้นงวด", "1/1/2569"),
+                CalcConfig: new MonthlyCalcTestCase("Item5", MonthPattern.All, MonthPattern.None, MonthPattern.None, MonthPattern.None, MonthPattern.None, "SaveAndClose"),
+                SaveAction: "SaveAndClose"
+            )
+        };
+
+        // [ขั้นที่ 2] ข้อมูลทดสอบ Validation ตอนเพิ่ม (Add Validation)
+        private const string Step2_DuplicateName = "งวดพิเศษ";
+        private const string Step2_ExpectedDuplicateMessage = "ชื่อรูปแบบงวดการจ่าย ห้ามซ้ำ กรุณาป้อนข้อมูล";
+
+        // [ขั้นที่ 3] ข้อมูลทดสอบการแก้ไขข้อมูล (Edit Records)
+        private static readonly PeriodTemplateEditItem[] Step3_EditCases =
+        {
+            new("TestCase07_EditRow1", "งวดการจ่าย 1 ครั้ง", "จ่าย 1 ครั้ง ต่อเดือน", (form) =>
             {
-                // ดึงหน้าต่างหลักขึ้นมาโฟกัสก่อนเริ่ม ป้องกันเมาส์ไปคลิกข้างนอก
-                ForceActivateWindow(_mainWindow);
+                FillTextBox(form, IdTxtRemark, "งวดการจ่ายเดือนละ 1 ครั้ง");
+                TickCheckbox(form, IdChkSpecial, true, fallbackNameContains: "งวดพิเศษ");
+            }, "Save", true),
 
-                var searchBox = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("baritemSearch"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit)), 4000)
-                                ?? throw new Exception("ไม่พบช่องค้นหา baritemSearch");
-
-                WaitUntil(() => { try { searchBox.Focus(); return true; } catch { return false; } }, 1000);
-                string searchKeyword = FormTitle;
-
-                // เคลียร์คำค้นหาของหน้าจอเดิมที่อาจค้างอยู่จากการรันจออื่น
-                if (searchBox.Patterns.Value.IsSupported)
-                {
-                    searchBox.Patterns.Value.Pattern.SetValue("");
-                    searchBox.Patterns.Value.Pattern.SetValue(searchKeyword);
-                }
-                else
-                {
-                    ClickElementByMouseInstant(searchBox);
-                    Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
-                    Keyboard.Press(VirtualKeyShort.BACK);
-                    Keyboard.Type(searchKeyword);
-                }
-
-                var searchBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("barChkSearch"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Find")), 4000)
-                                ?? throw new Exception("ไม่พบปุ่มค้นหา barChkSearch");
-
-                searchBtn.Click();
-
-                var menuResult = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName(searchKeyword))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 1"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 27")), 4000)
-                                 ?? throw new Exception("ไม่พบผลลัพธ์เมนูจากการค้นหา");
-
-                menuResult.Focus();
-                menuResult.Click();
-                Keyboard.Press(VirtualKeyShort.ENTER);
-
-                // เช็คโดยตรงว่าหน้าจอแสดงปุ่ม New พร้อมใช้งาน
-                return WaitUntil(() =>
-                {
-                    var newBtn = _mainWindow.FindFirstDescendant(cf => cf.ByName("New"));
-                    return newBtn != null && newBtn.Properties.IsEnabled.ValueOrDefault && !newBtn.Properties.IsOffscreen.ValueOrDefault;
-                }, TimeoutMs);
-            }
-            catch (Exception ex)
+            new("TestCase08_EditRow2", "งวดการจ่ายแบบตัดวิกเหลื่อมเดือน", "งวดการจ่ายวันที่ 21 เดือนก่อน-20เดือนปัจจุบัน", (form) =>
             {
-                LogFailureCounted(stage, $"ค้นหาและเปิดหน้าจอไม่สำเร็จ: {ex.Message}");
-                return false;
-            }
-        }
+                FillTextBox(form, IdTxtRemark, "งวดการจ่ายแบบตัดวิกเหลื่อมเดือน");
+                TickCheckbox(form, IdChkSpecial, false, fallbackNameContains: "งวดพิเศษ");
+            }, "Save and Close", false)
+        };
 
-        // -------------------------------------------------------------
-        // * 1. ทดสอบการ New ทั้ง 5 รายการ *
-        // -------------------------------------------------------------
+        // [ขั้นที่ 4] ข้อมูลทดสอบ Validation ตอนแก้ไข (Edit Validation)
+        private const string EditTargetRow = "จ่าย 1 ครั้ง ต่อเดือน";
+        private const string EditFallbackTargetRow = "งวดการจ่าย 1 ครั้ง";
+        private const string EditDuplicateNameTarget = "งวดพิเศษ";
+        private const string EditExpectedDuplicateMessage = "ชื่อรูปแบบงวดการจ่าย ห้ามซ้ำ กรุณาป้อนข้อมูล";
+
+        // [ขั้นที่ 5] ข้อมูลทดสอบการลบข้อมูล (Delete Records)
+        private static readonly DeleteItem[] Step5_DeleteCases =
+        {
+            new("งวดพิเศษ", "Yes", true),
+            new("งวดพิเศษสำหรับจ่ายครั้งเดียวเหตุเพราะออกจากงาน", "No", false)
+        };
+
+
+        // =========================================================================================
+        // หมวดที่ 2: ส่วนที่ขึ้นกับหน้าจอนั้นๆ (Screen-Specific Implementation)
+        // =========================================================================================
+
+        private const string MenuName = "กำหนดรูปแบบงวดการจ่าย";
+        private const string ScreenLogName = "PeriodTemplateInfoUC";
+        private const string FormId = "PeriodTemplateInfoUC";
+        private const string FormTitle = "กำหนดรูปแบบงวดการจ่าย";
+
+        private const string IdTxtName = "devTxtName";
+        private const string IdChkChange = "devChkChange";
+        private const string IdTxtRemark = "devTxtRemark";
+        private const string IdBtnAuto = "devBtnAuto";
+        private const string IdChkSpecial = "devChkSpecial";
+        private const string IdChkSpecialOnce = "devChkSpecialOnce";
+
+        private const string IdPopupAutoPeriod = "frmOptAutoPeriodTemplate";
+        private const string IdPopupSpinPeriodYear = "devSpinPeriodYear";
+        private const string IdPopupCbxPeriodMonth = "devCbxPeriodMonth";
+        private const string IdPopupBtnCalendarOrg = "devBtnCalendarOrg";
+        private const string IdPopupGcOverMonth = "devGcOverMonth";
+        private const string IdPopupDateStartDate = "devDateStartDate";
+
+        private static readonly string[] ColTaxNames = { "ภาษี", "คำนวณภาษี" };
+        private static readonly string[] ColSocialSecurityNames = { "ประกันสังคม", "คำนวณประกันสังคม" };
+        private static readonly string[] ColProvidentFundNames = { "กองทุนสำรองฯ", "กองทุนสำรอง", "คำนวณกองทุนสำรองฯ" };
+        private static readonly string[] ColWelfareFundNames = { "กองทุนสงเคราะห์ฯ", "กองทุนสงเคราะห์ลูกจ้าง", "คำนวณกองทุนสงเคราะห์ลูกจ้าง" };
+        private static readonly string[] ColClosePeriodNames = { "ปิดงวด" };
+
         public void NavigateToPeriodTemplateInfoUC()
         {
-            var items = new[]
-            {
-                new PeriodTemplateRecord(
-                    "งวดการจ่าย 1 ครั้ง", AdjustDate: true, Remark: "จ่าย 1 ครั้ง ต่อเดือน", Special: false, SpecialOnce: false,
-                    PopupConfig: new AutoPeriodPopupTestCase("Item1", "2569", "1", "จ่ายก่อนวันหยุด", "CAL-TEST-06", false, null, null),
-                    CalcConfig: new MonthlyCalcTestCase("Item1", MonthPattern.All, MonthPattern.None, MonthPattern.None, MonthPattern.First6, MonthPattern.None, "Save"),
-                    SaveAction: "Save"
-                ),
-                new PeriodTemplateRecord(
-                    "งวดการจ่ายแบบตัดวิกเหลื่อมเดือน", AdjustDate: false, Remark: "งวดการจ่ายวันที่ 21 เดือนก่อน-20เดือนปัจจุบัน", Special: false, SpecialOnce: false,
-                    PopupConfig: new AutoPeriodPopupTestCase("Item2", "2569", "1", "จ่ายหลังวันหยุด", "CAL-TEST-06", true, "ตามวันที่เริ่มต้นงวด", "21/01/2569"),
-                    CalcConfig: new MonthlyCalcTestCase("Item2", MonthPattern.All, MonthPattern.EveryOther, MonthPattern.Last6, MonthPattern.None, MonthPattern.None, "SaveAndNew"),
-                    SaveAction: "SaveAndNew"
-                ),
-                new PeriodTemplateRecord(
-                    "งวดการจ่าย 2 ครั้ง", AdjustDate: false, Remark: "รายวิก / วิกละ 15 วัน", Special: false, SpecialOnce: false,
-                    PopupConfig: new AutoPeriodPopupTestCase("Item3", "2569", "2", "ไม่เลื่อนวันจ่าย", null, false, null, null),
-                    CalcConfig: new MonthlyCalcTestCase("Item3", MonthPattern.None, MonthPattern.None, MonthPattern.None, MonthPattern.None, MonthPattern.All, "SaveAndNew"),
-                    SaveAction: "SaveAndNew"
-                ),
-                new PeriodTemplateRecord(
-                    "งวดพิเศษ", AdjustDate: true, Remark: "งวดพิเศษ", Special: true, SpecialOnce: false,
-                    PopupConfig: new AutoPeriodPopupTestCase("Item4", "2569", "3", "ไม่เลื่อนวันจ่าย", null, true, "ตามวันที่สิ้นสุดงวด", "20/1/2569"),
-                    CalcConfig: new MonthlyCalcTestCase("Item4", MonthPattern.None, MonthPattern.None, MonthPattern.None, MonthPattern.None, MonthPattern.None, "SaveAndNew"),
-                    SaveAction: "SaveAndNew"
-                ),
-                new PeriodTemplateRecord(
-                    "งวดพิเศษสำหรับจ่ายครั้งเดียวเหตุเพราะออกจากงาน", AdjustDate: true, Remark: "งวดพิเศษสำหรับจ่ายครั้งเดียวเหตุเพราะออกจากงาน", Special: true, SpecialOnce: true,
-                    PopupConfig: new AutoPeriodPopupTestCase("Item5", "2569", "1", "จ่ายก่อนวันหยุด", null, true, "ตามวันที่เริ่มต้นงวด", "1/1/2569"),
-                    CalcConfig: new MonthlyCalcTestCase("Item5", MonthPattern.All, MonthPattern.None, MonthPattern.None, MonthPattern.None, MonthPattern.None, "SaveAndClose"),
-                    SaveAction: "SaveAndClose"
-                ),
-            };
-
             string stageName = "TestCase00_AddPeriodTemplateInfo";
-            TestLogger.LogInfo("PeriodTemplateInfoUC", "เริ่มทดสอบหน้าจอ กำหนดรูปแบบงวดการจ่าย");
+            TestLogger.LogInfo(ScreenLogName, "เริ่มทดสอบหน้าจอ กำหนดรูปแบบงวดการจ่าย");
 
             if (!TryOpenPeriodTemplateInfoMenu(stageName)) return;
 
             Window? form = null;
 
-            for (int i = 0; i < items.Length; i++)
+            for (int i = 0; i < Step1_AddCases.Length; i++)
             {
-                var item = items[i];
+                var item = Step1_AddCases[i];
                 string testName = $"{stageName}_{item.Name}";
 
                 try
@@ -267,7 +214,7 @@ namespace HRMITestFlaUI.Module.Setup
                             if (FindRowByNameColumn(item.Name) != null)
                                 LogSuccessCounted(testName, $"'{item.Name}' เพิ่มสำเร็จ (พบในตารางหลัก)");
                             else
-                                LogFailureCounted(testName, $"'{item.Name}' ไม่พบในตารางหลักหลังบันทึก");
+                                LogFailureCounted(testName, $"'{item.Name}' ไม่พบในตารางหลังหลังบันทึก");
                             break;
                         case "SaveAndNew":
                         default:
@@ -289,9 +236,6 @@ namespace HRMITestFlaUI.Module.Setup
             }
         }
 
-        // -------------------------------------------------------------
-        // * 2. ทดสอบ แจ้งเตือนต่างๆ เมื่อ New *
-        // -------------------------------------------------------------
         public void RunAllValidationTests()
         {
             string stageName = "TestCase01-06_Validation";
@@ -325,113 +269,39 @@ namespace HRMITestFlaUI.Module.Setup
             RunValidationStep(dupCase, () =>
             {
                 ClickAutoPeriodButtonAndConfirm(form);
-                FillTextBox(form, IdTxtName, "งวดพิเศษ");
-                FillTextBox(form, IdTxtRemark, "งวดพิเศษ");
+                FillTextBox(form, IdTxtName, Step2_DuplicateName);
+                FillTextBox(form, IdTxtRemark, Step2_DuplicateName);
                 ClickFormButton(form, "Save and Close");
-                AssertTaskResultWarning(form, "ชื่อรูปแบบงวดการจ่าย ห้ามซ้ำ กรุณาป้อนข้อมูล", dupCase);
+                AssertTaskResultWarning(form, Step2_ExpectedDuplicateMessage, dupCase);
                 AssertFormStillOpen(form, dupCase);
             });
 
             RunValidationStep($"{dupCase}_CloseSequence", () =>
-                RunCloseDialogSequence(form, dupCase, "ชื่อรูปแบบงวดการจ่าย ห้ามซ้ำ กรุณาป้อนข้อมูล"));
+                RunCloseDialogSequence(form, dupCase, Step2_ExpectedDuplicateMessage));
         }
 
-        private void RunValidationStep(string testName, Action step)
-        {
-            try { step(); }
-            catch (Exception ex) { LogFailureCounted(testName, $"ไม่ผ่าน: {ex.Message}"); }
-        }
-
-        private void RunCloseDialogSequence(Window form, string testNamePrefix, string expectedWarningMessage)
-        {
-            string subCase = $"{testNamePrefix}_Close_Yes";
-            ClickCloseAndHandleDialog(form, "Yes", subCase);
-            AssertWarningAndFormOpen(form, expectedWarningMessage, subCase);
-
-            subCase = $"{testNamePrefix}_Close_Cancel";
-            ClickCloseAndHandleDialog(form, "Cancel", subCase);
-            AssertFormStillOpen(form, subCase);
-
-            subCase = $"{testNamePrefix}_Close_No";
-            ClickCloseAndHandleDialog(form, "No", subCase);
-            AssertFormClosed(form, subCase);
-        }
-
-        // -------------------------------------------------------------
-        // * 3. ทดสอบ Edit *
-        // -------------------------------------------------------------
         public void RunEditTests()
         {
             var results = new List<(string TestName, string ExistingName, string NewName)>();
 
-            TryAdd(results, PerformEdit("TestCase07_EditRow1", existingName: "งวดการจ่าย 1 ครั้ง",
-                newName: "จ่าย 1 ครั้ง ต่อเดือน", editAction: (form) =>
-                {
-                    FillTextBox(form, IdTxtRemark, "งวดการจ่ายเดือนละ 1 ครั้ง");
-                    TickCheckbox(form, IdChkSpecial, true, fallbackNameContains: "งวดพิเศษ");
-                },
-                saveButtonName: "Save", needsExplicitClose: true));
-
-            TryAdd(results, PerformEdit("TestCase08_EditRow2", existingName: "งวดการจ่ายแบบตัดวิกเหลื่อมเดือน",
-                newName: "งวดการจ่ายวันที่ 21 เดือนก่อน-20เดือนปัจจุบัน", editAction: (form) =>
-                {
-                    FillTextBox(form, IdTxtRemark, "งวดการจ่ายแบบตัดวิกเหลื่อมเดือน");
-                    TickCheckbox(form, IdChkSpecial, false, fallbackNameContains: "งวดพิเศษ");
-                },
-                saveButtonName: "Save and Close", needsExplicitClose: false));
+            foreach (var item in Step3_EditCases)
+            {
+                TryAdd(results, PerformEdit(item.TestCaseId, item.ExistingName,
+                    item.NewName, item.EditAction, item.SaveButtonName, item.NeedsExplicitClose));
+            }
 
             VerifyEditOutcomes(results);
         }
 
-        private static void TryAdd(List<(string, string, string)> list, (string, string, string)? item)
-        {
-            if (item.HasValue) list.Add(item.Value);
-        }
-
-        private (string TestName, string ExistingName, string NewName)? PerformEdit(string testName, string existingName,
-            string newName, Action<Window> editAction, string saveButtonName, bool needsExplicitClose)
-        {
-            try
-            {
-                Window form = ClickRowAndOpenEditForm(existingName, testName);
-                FillTextBox(form, IdTxtName, newName);
-                editAction(form);
-                if (!TrySaveAndHandleDuplicate(form, testName, newName, saveButtonName))
-                    return null;
-                if (needsExplicitClose)
-                    form.FindFirstDescendant(cf => cf.ByName("Close"))?.Click();
-
-                WaitForClosed(() => FindOpenPeriodTemplateInfoForm());
-                return (testName, existingName, newName);
-            }
-            catch (Exception ex)
-            {
-                LogFailureCounted(testName, $"แก้ไข '{existingName}' ไม่สำเร็จ: {ex.Message}");
-                return null;
-            }
-        }
-
-        private void VerifyEditOutcomes(List<(string TestName, string ExistingName, string NewName)> results)
-        {
-            if (results.Count == 0) return;
-            RefreshGrid();
-            foreach (var (testName, existingName, newName) in results)
-            {
-                if (VerifyRecordExistsInGrid(newName, refreshGrid: false))
-                    LogSuccessCounted(testName, $"แก้ไข '{existingName}' เป็น '{newName}' สำเร็จ (พบในตารางหลัก)");
-                else
-                    LogFailureCounted(testName, $"แก้ไข '{existingName}' เป็น '{newName}' แล้วแต่ไม่พบในตารางหลัก");
-            }
-        }
-
-        // -------------------------------------------------------------
-        // * 4. ทดสอบ การแจ้งเตือน Edit *
-        // -------------------------------------------------------------
         public void RunEditValidationTests()
         {
             string baseTestName = "TestCase09_EditValidation";
             Window form;
-            try { form = ClickRowAndOpenEditForm("จ่าย 1 ครั้ง ต่อเดือน", $"{baseTestName}_OpenForm"); }
+
+            // หาแถวที่ถูกแก้ไขแล้ว ถ้าไม่พบให้ fallback ไปหาแถวเดิม
+            string targetRow = FindRowByNameColumn(EditTargetRow) != null ? EditTargetRow : EditFallbackTargetRow;
+
+            try { form = ClickRowAndOpenEditForm(targetRow, $"{baseTestName}_OpenForm"); }
             catch (Exception ex)
             {
                 LogFailureCounted($"{baseTestName}_OpenForm", $"เปิดฟอร์ม Edit ไม่สำเร็จ: {ex.Message}");
@@ -458,30 +328,29 @@ namespace HRMITestFlaUI.Module.Setup
             string subCase = $"{baseTestName}_DuplicateName";
             RunValidationStep(subCase, () =>
             {
-                FillTextBox(form, IdTxtName, "งวดพิเศษ");
+                FillTextBox(form, IdTxtName, EditDuplicateNameTarget);
                 SetCalculationMonth(form, from: "กุมภาพันธ์", to: "มกราคม");
 
                 ClickFormButton(form, "Save");
                 form = RefreshOpenForm(form);
-                AssertTaskResultWarning(form, "ชื่อรูปแบบงวดการจ่าย ห้ามซ้ำ กรุณาป้อนข้อมูล", subCase);
+                AssertTaskResultWarning(form, EditExpectedDuplicateMessage, subCase);
                 AssertFormStillOpen(form, subCase);
             });
 
             RunValidationStep($"{subCase}_CloseSequence", () =>
-                RunCloseDialogSequence(form, subCase, "ชื่อรูปแบบงวดการจ่าย ห้ามซ้ำ กรุณาป้อนข้อมูล"));
+                RunCloseDialogSequence(form, subCase, EditExpectedDuplicateMessage));
 
             LogSuccessCounted(baseTestName, "รัน Validation Edit ครบทุกเคสแล้ว");
         }
 
-        // -------------------------------------------------------------
-        // * 5. ทดสอบ Delete *
-        // -------------------------------------------------------------
         public void RunDeleteTests()
         {
             string baseTestName = "TestCase10_Delete";
 
-            RunDeleteCase(baseTestName, name: "งวดพิเศษ", confirmButton: "Yes", expectDeleted: true);
-            RunDeleteCase(baseTestName, name: "งวดพิเศษสำหรับจ่ายครั้งเดียวเหตุเพราะออกจากงาน", confirmButton: "No", expectDeleted: false);
+            foreach (var testCase in Step5_DeleteCases)
+            {
+                RunDeleteCase(baseTestName, name: testCase.TargetName, confirmButton: testCase.DialogBtn, expectDeleted: testCase.ExpectDeleted);
+            }
 
             var lingeringForm = FindOpenPeriodTemplateInfoForm();
             if (lingeringForm != null)
@@ -495,12 +364,11 @@ namespace HRMITestFlaUI.Module.Setup
             }
 
             LogSuccessCounted(baseTestName, "ทดสอบ Delete ครบทุกเคส");
-            TestLogger.LogInfo("PeriodTemplateInfoUC", $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
+            TestLogger.LogInfo(ScreenLogName, $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
         }
 
         public void RunAutoPeriodAndMonthlyCalcTestSuite() { }
 
-        // ป้องกันไม่ให้ข้อผิดพลาดจากหน้าจอนี้ หลุดไปกระทบหน้าจออื่นตอนรัน 9 หน้าจอ
         public void RunAllTestSteps()
         {
             try
@@ -513,17 +381,14 @@ namespace HRMITestFlaUI.Module.Setup
             }
             finally
             {
-                // ไม่ว่าจะผ่านหรือเฟล ต้องเคลียร์สถานะคืนหน้าจอหลักเสมอ
                 CleanupScreenState();
             }
         }
 
-        // คืนสถานะโปรแกรมให้พร้อมสำหรับหน้าจอถัดไป
         private void CleanupScreenState()
         {
             try
             {
-                // 1. ถ้ายังมีฟอร์มย่อยค้างอยู่ ให้ปิดออก
                 var openForm = FindOpenPeriodTemplateInfoForm();
                 if (openForm != null)
                 {
@@ -531,47 +396,18 @@ namespace HRMITestFlaUI.Module.Setup
                     WaitForClosed(() => FindOpenPeriodTemplateInfoForm(), 2000);
                 }
 
-                // 2. เคลียร์ข้อความในช่องค้นหาเมนูหลัก
                 var searchBox = _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("baritemSearch"));
                 if (searchBox != null && searchBox.Patterns.Value.IsSupported)
                 {
                     searchBox.Patterns.Value.Pattern.SetValue("");
                 }
 
-                // 3. กด Escape ป้องกัน Dropdown หรือ Focus ค้าง
                 Keyboard.Press(VirtualKeyShort.ESCAPE);
             }
             catch { }
         }
 
-        private void RunDeleteCase(string baseTestName, string name, string confirmButton, bool expectDeleted)
-        {
-            string testName = $"{baseTestName}_{name}_{confirmButton}";
-            try { DeleteRecordAndVerify(name, confirmButton, testName, expectDeleted); }
-            catch (Exception ex) { LogFailureCounted(testName, $"ลบ '{name}' ไม่สำเร็จ: {ex.Message}"); }
-        }
-
-        // -------------------------------------------------------------
-        // * Shared test-flow helpers *
-        // -------------------------------------------------------------
-        private Window RefreshOpenForm(Window fallback, int timeoutMs = 5000)
-        {
-            var refreshed = RetryFind(FindOpenPeriodTemplateInfoForm, timeoutMs: timeoutMs);
-            return refreshed ?? fallback;
-        }
-
-        private bool TrySaveAndHandleDuplicate(Window form, string testName, string name, string saveButtonName)
-        {
-            ClickFormButton(form, saveButtonName);
-            if (testName.Contains("Validation")) return true;
-            string? duplicateReason = TryDetectDuplicateWarning(form);
-            if (duplicateReason == null) return true;
-            LogFailureCounted(testName, $"'{name}' ชื่อรูปแบบงวดการจ่ายซ้ำ: {duplicateReason}");
-            try { ClickCloseAndHandleDialog(form, "No", $"{testName}_Close"); }
-            catch (Exception closeEx) { LogFailureCounted(testName, $"ปิดฟอร์มไม่สำเร็จ: {closeEx.Message}"); }
-            return false;
-        }
-
+        // --- Custom Mapping & Control Logic ประจำหน้าจอ PeriodTemplateInfoUC ---
         private void FillPeriodTemplateFields(Window form, PeriodTemplateRecord item)
         {
             FillTextBox(form, IdTxtName, item.Name);
@@ -611,16 +447,22 @@ namespace HRMITestFlaUI.Module.Setup
             }
         }
 
-        // -------------------------------------------------------------
-        // * Popup helpers *
-        // -------------------------------------------------------------
-        private void ClickFormButton(Window form, string buttonNameOrId, int timeoutMs = 3000, bool byAutomationId = false)
+        private Window RefreshOpenForm(Window fallback, int timeoutMs = 5000)
         {
-            var button = byAutomationId
-                ? RetryFind(() => form.FindFirstDescendant(cf => cf.ByAutomationId(buttonNameOrId)), timeoutMs: timeoutMs)
-                : RetryFind(() => form.FindFirstDescendant(cf => cf.ByName(buttonNameOrId)), timeoutMs: timeoutMs);
-            if (button == null) throw new Exception($"หาปุ่ม '{buttonNameOrId}' บนฟอร์มไม่เจอ");
-            ClickElementByMouseInstant(button);
+            var refreshed = RetryFind(FindOpenPeriodTemplateInfoForm, timeoutMs: timeoutMs);
+            return refreshed ?? fallback;
+        }
+
+        private bool TrySaveAndHandleDuplicate(Window form, string testName, string name, string saveButtonName)
+        {
+            ClickFormButton(form, saveButtonName);
+            if (testName.Contains("Validation")) return true;
+            string? duplicateReason = TryDetectDuplicateWarning(form);
+            if (duplicateReason == null) return true;
+            LogFailureCounted(testName, $"'{name}' ชื่อรูปแบบงวดการจ่ายซ้ำ: {duplicateReason}");
+            try { ClickCloseAndHandleDialog(form, "No", $"{testName}_Close"); }
+            catch (Exception closeEx) { LogFailureCounted(testName, $"ปิดฟอร์มไม่สำเร็จ: {closeEx.Message}"); }
+            return false;
         }
 
         private void ClickAutoPeriodButtonAndConfirm(Window form) => FillAndConfirmAutoPeriodPopup(form, testCase: null);
@@ -894,16 +736,10 @@ namespace HRMITestFlaUI.Module.Setup
             Keyboard.Press(VirtualKeyShort.TAB);
         }
 
-        private void LogLookup(string msg) { }
-
         private void SelectHolidayCalendar(AutomationElement popup, string calendarName)
         {
             Window? lookupDialog = FindHolidayLookupWindowOnce(popup) ?? TryOpenHolidayLookup(popup);
-            if (lookupDialog == null)
-            {
-                LogLookup("Pop-up 'กำหนดปฏิทินบริษัท' ไม่เปิดขึ้นมา");
-                return;
-            }
+            if (lookupDialog == null) return;
 
             ForceActivateWindow(lookupDialog);
             Thread.Sleep(300);
@@ -922,7 +758,6 @@ namespace HRMITestFlaUI.Module.Setup
             AutomationElement? cell = RetryFind(() => FindLookupCodeCell(lookupDialog, calendarName, expectedRow), timeoutMs: 3000);
             if (cell == null)
             {
-                LogLookup($"ไม่พบเซลล์ของ '{calendarName}' (row {expectedRow}) ใน dialog -> Cancel");
                 ClickLookupButton(lookupDialog, "Cancel", rightOffset: 30);
                 WaitForClosed(() => FindHolidayLookupWindowOnce(popup), 2000);
                 ForceActivateWindow(popup.AsWindow() ?? _mainWindow.AsWindow());
@@ -1116,33 +951,6 @@ namespace HRMITestFlaUI.Module.Setup
             return WaitLookup();
         }
 
-        private static string GetElementTextSafe(AutomationElement el)
-        {
-            try { if (el.Patterns.Value.IsSupported) { var v = el.Patterns.Value.Pattern.Value.ValueOrDefault; if (!string.IsNullOrEmpty(v)) return v; } } catch { }
-            try { if (el.Patterns.LegacyIAccessible.IsSupported) { var v = el.Patterns.LegacyIAccessible.Pattern.Value.ValueOrDefault; if (!string.IsNullOrEmpty(v)) return v; } } catch { }
-            try { return el.Name ?? ""; } catch { return ""; }
-        }
-
-        private void ClickAtPoint(int x, int y)
-        {
-            SetCursorPos(x, y);
-            Thread.Sleep(50);
-            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
-            Thread.Sleep(50);
-            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
-        }
-
-        private bool InvokeElement(AutomationElement element)
-        {
-            try { if (element.Patterns.Invoke.IsSupported) { element.Patterns.Invoke.Pattern.Invoke(); return true; } } catch { }
-            try { if (element.Patterns.LegacyIAccessible.IsSupported) { element.Patterns.LegacyIAccessible.Pattern.DoDefaultAction(); return true; } } catch { }
-            try { if (element.Patterns.Toggle.IsSupported) { element.Patterns.Toggle.Pattern.Toggle(); return true; } } catch { }
-            return false;
-        }
-
-        // -------------------------------------------------------------
-        // * ตารางงวดการจ่ายหลัก (หน้า General) *
-        // -------------------------------------------------------------
         private static IEnumerable<int> ResolveMonthRowsInternal(MonthPattern pattern, int totalRows)
         {
             switch (pattern)
@@ -1303,6 +1111,348 @@ namespace HRMITestFlaUI.Module.Setup
         {
             element.Focus();
             ClickElementByMouseInstant(element);
+        }
+
+        private void SetCalculationMonth(Window form, string from, string to)
+        {
+            ForceActivateWindow(form);
+
+            var grid = FindCalculationGrid(form);
+            if (grid == null) throw new Exception("หากริดตารางงวดการจ่ายหน้า General ไม่เจอ");
+
+            var colHeader = grid.FindFirstDescendant(cf => cf.ByName("ประจำเดือน"))
+                         ?? grid.FindAllDescendants().FirstOrDefault(e => !string.IsNullOrEmpty(e.Name) && e.Name.Trim().Equals("ประจำเดือน", StringComparison.OrdinalIgnoreCase));
+
+            int clickX, clickY;
+
+            if (colHeader != null)
+            {
+                var headerBounds = colHeader.BoundingRectangle;
+                clickX = (int)headerBounds.Center().X;
+                clickY = (int)headerBounds.Bottom + 12;
+            }
+            else
+            {
+                var gridBounds = grid.BoundingRectangle;
+                clickX = (int)gridBounds.Left + 120;
+                clickY = (int)gridBounds.Top + 60;
+            }
+
+            SetCursorPos(clickX, clickY);
+            Thread.Sleep(50);
+            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+            Thread.Sleep(50);
+            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+
+            Thread.Sleep(300);
+
+            if (to.Equals("กุมภาพันธ์", StringComparison.OrdinalIgnoreCase))
+            {
+                int itemY = clickY + 34;
+                SetCursorPos(clickX, itemY);
+                Thread.Sleep(100);
+                mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+                Thread.Sleep(50);
+                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+            }
+            else if (to.Equals("มกราคม", StringComparison.OrdinalIgnoreCase))
+            {
+                int itemY = clickY + 16;
+                SetCursorPos(clickX, itemY);
+                Thread.Sleep(100);
+                mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+                Thread.Sleep(50);
+                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+            }
+        }
+
+        private Window ClickRowAndOpenEditForm(string nameToFind, string testName)
+        {
+            RefreshGrid();
+            AutomationElement? row = RetryFind(() => FindRowByNameColumn(nameToFind), timeoutMs: 6000);
+            if (row == null)
+            {
+                RefreshGrid();
+                row = RetryFind(() => FindRowByNameColumn(nameToFind), timeoutMs: 6000);
+            }
+            if (row == null) throw new Exception($"หาแถวสำหรับ '{nameToFind}' ไม่เจอ");
+
+            WaitUntil(() => { try { row.Focus(); return true; } catch { return false; } }, 1000);
+            ClickElementByMouseInstant(row);
+            Thread.Sleep(200);
+
+            var editButton = RetryFind(() => _mainWindow.FindFirstDescendant(cf => cf.ByName("Edit")), 3000)
+                ?? throw new Exception("หาปุ่ม Edit ไม่เจอ");
+
+            ClickElementByMouseInstant(editButton);
+            var editForm = RetryFind(FindOpenPeriodTemplateInfoForm) ?? throw new Exception("หาฟอร์ม PeriodTemplateInfoUC ไม่เจอ");
+            WaitUntil(() => editForm.FindFirstDescendant(cf => cf.ByAutomationId(IdTxtName)) != null, 3000);
+            return editForm;
+        }
+
+        private (string TestName, string ExistingName, string NewName)? PerformEdit(string testName, string existingName,
+            string newName, Action<Window> editAction, string saveButtonName, bool needsExplicitClose)
+        {
+            try
+            {
+                Window form = ClickRowAndOpenEditForm(existingName, testName);
+                FillTextBox(form, IdTxtName, newName);
+                editAction(form);
+                if (!TrySaveAndHandleDuplicate(form, testName, newName, saveButtonName))
+                    return null;
+                if (needsExplicitClose)
+                    form.FindFirstDescendant(cf => cf.ByName("Close"))?.Click();
+
+                WaitForClosed(() => FindOpenPeriodTemplateInfoForm());
+                return (testName, existingName, newName);
+            }
+            catch (Exception ex)
+            {
+                LogFailureCounted(testName, $"แก้ไข '{existingName}' ไม่สำเร็จ: {ex.Message}");
+                return null;
+            }
+        }
+
+        private void VerifyEditOutcomes(List<(string TestName, string ExistingName, string NewName)> results)
+        {
+            if (results.Count == 0) return;
+            RefreshGrid();
+            foreach (var (testName, existingName, newName) in results)
+            {
+                if (VerifyRecordExistsInGrid(newName, refreshGrid: false))
+                    LogSuccessCounted(testName, $"แก้ไข '{existingName}' เป็น '{newName}' สำเร็จ (พบในตารางหลัก)");
+                else
+                    LogFailureCounted(testName, $"แก้ไข '{existingName}' เป็น '{newName}' แล้วแต่ไม่พบในตารางหลัก");
+            }
+        }
+
+        private void DeleteRecordAndVerify(string name, string confirmButton, string testName, bool expectDeleted)
+        {
+            try
+            {
+                var dataGrid = _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.DataGrid))
+                               ?? _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.Table));
+                if (dataGrid != null)
+                {
+                    dataGrid.Focus();
+                    Keyboard.Press(VirtualKeyShort.ESCAPE);
+                    Keyboard.Press(VirtualKeyShort.UP);
+                }
+            }
+            catch { }
+
+            RefreshGrid();
+
+            AutomationElement? row = RetryFind(() => FindRowByNameColumn(name), timeoutMs: 10000);
+            if (row == null)
+            {
+                RefreshGrid();
+                row = RetryFind(() => FindRowByNameColumn(name), timeoutMs: 8000);
+            }
+
+            if (row == null) throw new Exception($"หาแถวสำหรับลบ ({name}) ไม่เจอ");
+
+            WaitUntil(() => { try { row.Focus(); return true; } catch { return false; } }, 1000);
+            ClickElementByMouseInstant(row);
+            Thread.Sleep(200);
+
+            var deleteButton = RetryFind(() => _mainWindow.FindFirstDescendant(cf => cf.ByName("Delete")), 3000)
+                ?? throw new Exception("หาปุ่ม Delete ไม่เจอ");
+
+            ClickElementByMouseInstant(deleteButton);
+
+            Window? confirmDialog = RetryFind(() =>
+                _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault()
+                ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByName("คำเตือน"))?.AsWindow(),
+                timeoutMs: 4000);
+
+            if (confirmDialog == null) throw new Exception("กด Delete แล้วไม่พบ Pop-up ยืนยัน");
+
+            ClickDialogButton(confirmDialog, confirmButton, "ยืนยันการลบ");
+            WaitForClosed(() => confirmDialog);
+
+            RefreshGrid();
+            bool stillExistsOnGrid = FindRowByNameColumn(name, exactOnly: expectDeleted) != null;
+
+            if (expectDeleted)
+            {
+                if (stillExistsOnGrid)
+                {
+                    string msg = $"'{name}' ลบข้อมูลไม่สำเร็จ";
+                    LogFailureCounted(testName, msg);
+                    throw new Exception(msg);
+                }
+                LogSuccessCounted(testName, $"'{name}' ถูกลบสำเร็จ");
+            }
+            else
+            {
+                if (!stillExistsOnGrid)
+                {
+                    string msg = $"'{name}' ลบข้อมูลผิดพลาด";
+                    LogFailureCounted(testName, msg);
+                    throw new Exception(msg);
+                }
+                LogSuccessCounted(testName, $"'{name}' ข้อมูลยังไม่ถูกลบ");
+            }
+        }
+
+
+        // =========================================================================================
+        // หมวดที่ 3: ส่วนการทำงานกลางที่ตายตัว (Common / Reusable Helpers)
+        // =========================================================================================
+
+        private readonly AutomationElement _mainWindow;
+        private readonly UIA3Automation _automation;
+        private int _totalSuccess = 0;
+        private int _totalFail = 0;
+        private const int TimeoutMs = 6000;
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext);
+        [DllImport("user32.dll")]
+        private static extern bool SetProcessDPIAware();
+        private static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
+
+        [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
+        [DllImport("user32.dll")] private static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
+        private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+        private const uint MOUSEEVENTF_LEFTUP = 0x0004;
+        [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+        [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+        [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
+        [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr hWnd);
+
+        static PeriodTemplateInfoUC()
+        {
+            try
+            {
+                if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
+                    SetProcessDPIAware();
+            }
+            catch (Exception ex) { Debug.WriteLine($"DPI Awareness failed: {ex.Message}"); }
+        }
+
+        public PeriodTemplateInfoUC(AutomationElement mainWindow, UIA3Automation automation)
+        {
+            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
+            _automation = automation ?? throw new ArgumentNullException(nameof(automation));
+        }
+
+        private bool TryOpenPeriodTemplateInfoMenu(string stage)
+        {
+            try
+            {
+                ForceActivateWindow(_mainWindow);
+
+                var searchBox = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("baritemSearch"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit)), 4000)
+                                ?? throw new Exception("ไม่พบช่องค้นหา baritemSearch");
+
+                WaitUntil(() => { try { searchBox.Focus(); return true; } catch { return false; } }, 1000);
+                string searchKeyword = FormTitle;
+
+                if (searchBox.Patterns.Value.IsSupported)
+                {
+                    searchBox.Patterns.Value.Pattern.SetValue("");
+                    searchBox.Patterns.Value.Pattern.SetValue(searchKeyword);
+                }
+                else
+                {
+                    ClickElementByMouseInstant(searchBox);
+                    Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
+                    Keyboard.Press(VirtualKeyShort.BACK);
+                    Keyboard.Type(searchKeyword);
+                }
+
+                var searchBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("barChkSearch"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Find")), 4000)
+                                ?? throw new Exception("ไม่พบปุ่มค้นหา barChkSearch");
+
+                searchBtn.Click();
+
+                var menuResult = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName(searchKeyword))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 1"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 27")), 4000)
+                                 ?? throw new Exception("ไม่พบผลลัพธ์เมนูจากการค้นหา");
+
+                menuResult.Focus();
+                menuResult.Click();
+                Keyboard.Press(VirtualKeyShort.ENTER);
+
+                return WaitUntil(() =>
+                {
+                    var newBtn = _mainWindow.FindFirstDescendant(cf => cf.ByName("New"));
+                    return newBtn != null && newBtn.Properties.IsEnabled.ValueOrDefault && !newBtn.Properties.IsOffscreen.ValueOrDefault;
+                }, TimeoutMs);
+            }
+            catch (Exception ex)
+            {
+                LogFailureCounted(stage, $"ค้นหาและเปิดหน้าจอไม่สำเร็จ: {ex.Message}");
+                return false;
+            }
+        }
+
+        private void RunValidationStep(string testName, Action step)
+        {
+            try { step(); }
+            catch (Exception ex) { LogFailureCounted(testName, $"ไม่ผ่าน: {ex.Message}"); }
+        }
+
+        private void RunCloseDialogSequence(Window form, string testNamePrefix, string expectedWarningMessage)
+        {
+            string subCase = $"{testNamePrefix}_Close_Yes";
+            ClickCloseAndHandleDialog(form, "Yes", subCase);
+            AssertWarningAndFormOpen(form, expectedWarningMessage, subCase);
+
+            subCase = $"{testNamePrefix}_Close_Cancel";
+            ClickCloseAndHandleDialog(form, "Cancel", subCase);
+            AssertFormStillOpen(form, subCase);
+
+            subCase = $"{testNamePrefix}_Close_No";
+            ClickCloseAndHandleDialog(form, "No", subCase);
+            AssertFormClosed(form, subCase);
+        }
+
+        private void RunDeleteCase(string baseTestName, string name, string confirmButton, bool expectDeleted)
+        {
+            string testName = $"{baseTestName}_{name}_{confirmButton}";
+            try { DeleteRecordAndVerify(name, confirmButton, testName, expectDeleted); }
+            catch (Exception ex) { LogFailureCounted(testName, $"ลบ '{name}' ไม่สำเร็จ: {ex.Message}"); }
+        }
+
+        private void ClickFormButton(Window form, string buttonNameOrId, int timeoutMs = 3000, bool byAutomationId = false)
+        {
+            var button = byAutomationId
+                ? RetryFind(() => form.FindFirstDescendant(cf => cf.ByAutomationId(buttonNameOrId)), timeoutMs: timeoutMs)
+                : RetryFind(() => form.FindFirstDescendant(cf => cf.ByName(buttonNameOrId)), timeoutMs: timeoutMs);
+            if (button == null) throw new Exception($"หาปุ่ม '{buttonNameOrId}' บนฟอร์มไม่เจอ");
+            ClickElementByMouseInstant(button);
+        }
+
+        private static string GetElementTextSafe(AutomationElement el)
+        {
+            try { if (el.Patterns.Value.IsSupported) { var v = el.Patterns.Value.Pattern.Value.ValueOrDefault; if (!string.IsNullOrEmpty(v)) return v; } } catch { }
+            try { if (el.Patterns.LegacyIAccessible.IsSupported) { var v = el.Patterns.LegacyIAccessible.Pattern.Value.ValueOrDefault; if (!string.IsNullOrEmpty(v)) return v; } } catch { }
+            try { return el.Name ?? ""; } catch { return ""; }
+        }
+
+        private void ClickAtPoint(int x, int y)
+        {
+            SetCursorPos(x, y);
+            Thread.Sleep(50);
+            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+            Thread.Sleep(50);
+            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+        }
+
+        private bool InvokeElement(AutomationElement element)
+        {
+            try { if (element.Patterns.Invoke.IsSupported) { element.Patterns.Invoke.Pattern.Invoke(); return true; } } catch { }
+            try { if (element.Patterns.LegacyIAccessible.IsSupported) { element.Patterns.LegacyIAccessible.Pattern.DoDefaultAction(); return true; } } catch { }
+            try { if (element.Patterns.Toggle.IsSupported) { element.Patterns.Toggle.Pattern.Toggle(); return true; } } catch { }
+            return false;
         }
 
         private void ForceActivateWindow(AutomationElement windowElement)
@@ -1506,109 +1656,25 @@ namespace HRMITestFlaUI.Module.Setup
             _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault(w => w.AutomationId == FormId || w.Name.Contains(FormTitle))
             ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByAutomationId(FormId).Or(cf.ByName(FormTitle)))?.AsWindow();
 
-        private Window ClickRowAndOpenEditForm(string nameToFind, string testName)
-        {
-            RefreshGrid();
-            AutomationElement? row = RetryFind(() => FindRowByNameColumn(nameToFind), timeoutMs: 8000);
-            if (row == null)
-            {
-                RefreshGrid();
-                row = RetryFind(() => FindRowByNameColumn(nameToFind), timeoutMs: 8000);
-            }
-            if (row == null) throw new Exception($"หาแถวสำหรับ '{nameToFind}' ไม่เจอ");
-
-            WaitUntil(() => { try { row.Focus(); return true; } catch { return false; } }, 1000);
-            ClickElementByMouseInstant(row);
-            Thread.Sleep(200);
-
-            var editButton = RetryFind(() => _mainWindow.FindFirstDescendant(cf => cf.ByName("Edit")), 3000)
-                ?? throw new Exception("หาปุ่ม Edit ไม่เจอ");
-
-            ClickElementByMouseInstant(editButton);
-            var editForm = RetryFind(FindOpenPeriodTemplateInfoForm) ?? throw new Exception("หาฟอร์ม PeriodTemplateInfoUC ไม่เจอ");
-            WaitUntil(() => editForm.FindFirstDescendant(cf => cf.ByAutomationId(IdTxtName)) != null, 3000);
-            return editForm;
-        }
-
-        private void DeleteRecordAndVerify(string name, string confirmButton, string testName, bool expectDeleted)
-        {
-            try
-            {
-                var dataGrid = _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.DataGrid))
-                               ?? _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.Table));
-                if (dataGrid != null)
-                {
-                    dataGrid.Focus();
-                    Keyboard.Press(VirtualKeyShort.ESCAPE);
-                    Keyboard.Press(VirtualKeyShort.UP);
-                }
-            }
-            catch { }
-
-            RefreshGrid();
-
-            AutomationElement? row = RetryFind(() => FindRowByNameColumn(name), timeoutMs: 10000);
-            if (row == null)
-            {
-                RefreshGrid();
-                row = RetryFind(() => FindRowByNameColumn(name), timeoutMs: 8000);
-            }
-
-            if (row == null) throw new Exception($"หาแถวสำหรับลบ ({name}) ไม่เจอ");
-
-            WaitUntil(() => { try { row.Focus(); return true; } catch { return false; } }, 1000);
-            ClickElementByMouseInstant(row);
-            Thread.Sleep(200);
-
-            var deleteButton = RetryFind(() => _mainWindow.FindFirstDescendant(cf => cf.ByName("Delete")), 3000)
-                ?? throw new Exception("หาปุ่ม Delete ไม่เจอ");
-
-            ClickElementByMouseInstant(deleteButton);
-
-            Window? confirmDialog = RetryFind(() =>
-                _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault()
-                ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByName("คำเตือน"))?.AsWindow(),
-                timeoutMs: 4000);
-
-            if (confirmDialog == null) throw new Exception("กด Delete แล้วไม่พบ Pop-up ยืนยัน");
-
-            ClickDialogButton(confirmDialog, confirmButton, "ยืนยันการลบ");
-            WaitForClosed(() => confirmDialog);
-
-            RefreshGrid();
-            bool stillExistsOnGrid = FindRowByNameColumn(name, exactOnly: expectDeleted) != null;
-
-            if (expectDeleted)
-            {
-                if (stillExistsOnGrid)
-                {
-                    string msg = $"'{name}' ลบข้อมูลไม่สำเร็จ";
-                    LogFailureCounted(testName, msg);
-                    throw new Exception(msg);
-                }
-                LogSuccessCounted(testName, $"'{name}' ถูกลบสำเร็จ");
-            }
-            else
-            {
-                if (!stillExistsOnGrid)
-                {
-                    string msg = $"'{name}' ลบข้อมูลผิดพลาด";
-                    LogFailureCounted(testName, msg);
-                    throw new Exception(msg);
-                }
-                LogSuccessCounted(testName, $"'{name}' ข้อมูลยังไม่ถูกลบ");
-            }
-        }
-
         private void ClickCloseAndHandleDialog(Window form, string buttonToClick, string testName)
         {
             ForceActivateWindow(form);
+            Thread.Sleep(150);
 
             var closeBtn = form.FindFirstDescendant(cf => cf.ByName("Close"))
-                ?? form.FindFirstDescendant(cf => cf.ByName("button 'Close'"));
+                ?? form.FindFirstDescendant(cf => cf.ByName("button 'Close'"))
+                ?? form.FindFirstDescendant(cf => cf.ByAutomationId("devBtnClose"));
 
-            if (closeBtn != null) ClickElementByMouseInstant(closeBtn);
-            else form.FindFirstDescendant(cf => cf.ByName("Close"))?.Click();
+            if (closeBtn != null)
+            {
+                ClickElementByMouseInstant(closeBtn);
+            }
+            else
+            {
+                // Fallback ด้วยปุ่ม Close มาตรฐานหรือส่ง Escape/Close Pattern
+                form.Focus();
+                Keyboard.Press(VirtualKeyShort.ESCAPE);
+            }
 
             Window? confirmDialog = RetryFind(() =>
                 form.ModalWindows.FirstOrDefault()
@@ -1616,6 +1682,18 @@ namespace HRMITestFlaUI.Module.Setup
                 ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByName("คำเตือน"))?.AsWindow()
                 ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByName("Question"))?.AsWindow(),
                 timeoutMs: 4000);
+
+            if (confirmDialog == null)
+            {
+                // ลองคลิกปุ่ม Close อีกรอบ
+                if (closeBtn != null) ClickElementByMouseInstant(closeBtn);
+                confirmDialog = RetryFind(() =>
+                    form.ModalWindows.FirstOrDefault()
+                    ?? _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault()
+                    ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByName("คำเตือน"))?.AsWindow()
+                    ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByName("Question"))?.AsWindow(),
+                    timeoutMs: 3000);
+            }
 
             if (confirmDialog == null) throw new Exception("กด Close แล้วไม่พบ Pop-up ยืนยันคำเตือน");
 
@@ -1733,12 +1811,37 @@ namespace HRMITestFlaUI.Module.Setup
             TestLogger.LogFailure(testName, message);
         }
 
-        private void FillTextBox(AutomationElement context, string automationId, string text)
+        private static void FillTextBox(AutomationElement context, string automationId, string text)
         {
+            // 1. ค้นหาจาก AutomationId ตรงๆ หรือชื่อที่เกี่ยวข้องกับ Remark
             var element = context.FindFirstDescendant(cf => cf.ByAutomationId(automationId))
-                ?? context.FindFirstDescendant(cf => cf.ByName(automationId))
-                ?? context.FindAllDescendants(cf => cf.ByControlType(ControlType.Edit)).FirstOrDefault()
-                ?? throw new Exception($"หาช่องกรอก '{automationId}' ไม่เจอ");
+                ?? context.FindFirstDescendant(cf => cf.ByName(automationId));
+
+            if (element == null && (automationId.Contains("Remark") || automationId.Contains("devTxtRemark")))
+            {
+                element = context.FindFirstDescendant(cf => cf.ByAutomationId("devMemoRemark"))
+                    ?? context.FindFirstDescendant(cf => cf.ByAutomationId("txtRemark"))
+                    ?? context.FindFirstDescendant(cf => cf.ByAutomationId("memoRemark"));
+
+                if (element == null)
+                {
+                    var lbl = context.FindAllDescendants(cf => cf.ByControlType(ControlType.Text))
+                        .FirstOrDefault(e => !string.IsNullOrEmpty(e.Name) && (e.Name.Contains("หมายเหตุ") || e.Name.Contains("รายละเอียด")));
+                    if (lbl != null)
+                    {
+                        var lr = lbl.BoundingRectangle;
+                        element = context.FindAllDescendants(cf => cf.ByControlType(ControlType.Edit))
+                            .FirstOrDefault(e => Math.Abs(e.BoundingRectangle.Y - lr.Y) < 30 && e.BoundingRectangle.X >= lr.Right - 5);
+                    }
+                }
+            }
+
+            element ??= context.FindFirstDescendant(cf => cf.ByAutomationId(automationId));
+
+            if (element == null)
+            {
+                throw new Exception($"หาช่องกรอก '{automationId}' ไม่เจอ");
+            }
 
             WaitUntil(() => { try { element.Focus(); return true; } catch { return false; } }, 1000);
 
@@ -1752,7 +1855,7 @@ namespace HRMITestFlaUI.Module.Setup
                 catch { }
             }
 
-            ClickElementByMouseInstant(element);
+            ClickElementByMouseInstantStatic(element);
 
             Keyboard.Press(VirtualKeyShort.CONTROL);
             Keyboard.Type("a");
@@ -1766,11 +1869,26 @@ namespace HRMITestFlaUI.Module.Setup
             }
         }
 
-        private void TickCheckbox(AutomationElement context, string checkboxId, bool tick, string? fallbackNameContains = null)
+        private static void ClickElementByMouseInstantStatic(AutomationElement element)
+        {
+            var bounds = element.BoundingRectangle;
+            int x = (int)bounds.Center().X;
+            int y = (int)bounds.Center().Y;
+            SetCursorPos(x, y);
+            Thread.Sleep(50);
+            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+            Thread.Sleep(50);
+            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+        }
+
+        private static void TickCheckbox(AutomationElement context, string checkboxId, bool tick, string? fallbackNameContains = null)
         {
             var found = context.FindFirstDescendant(cf => cf.ByAutomationId(checkboxId));
             if (found == null && !string.IsNullOrEmpty(fallbackNameContains))
-                found = FindByIdOrName(context, null, fallbackNameContains, ControlType.CheckBox);
+            {
+                var candidates = context.FindAllDescendants(cf => cf.ByControlType(ControlType.CheckBox));
+                found = candidates.FirstOrDefault(e => !string.IsNullOrEmpty(e.Name) && e.Name.Contains(fallbackNameContains, StringComparison.OrdinalIgnoreCase));
+            }
             if (found == null)
             {
                 throw new Exception($"หา checkbox '{checkboxId}' ไม่เจอ");
@@ -1790,60 +1908,11 @@ namespace HRMITestFlaUI.Module.Setup
             }
         }
 
-        private void SetCalculationMonth(Window form, string from, string to)
+        private static void TryAdd<T>(List<T> list, T? item) where T : struct
         {
-            ForceActivateWindow(form);
-
-            var grid = FindCalculationGrid(form);
-            if (grid == null) throw new Exception("หากริดตารางงวดการจ่ายหน้า General ไม่เจอ");
-
-            var colHeader = grid.FindFirstDescendant(cf => cf.ByName("ประจำเดือน"))
-                         ?? grid.FindAllDescendants().FirstOrDefault(e => !string.IsNullOrEmpty(e.Name) && e.Name.Trim().Equals("ประจำเดือน", StringComparison.OrdinalIgnoreCase));
-
-            int clickX, clickY;
-
-            if (colHeader != null)
-            {
-                var headerBounds = colHeader.BoundingRectangle;
-                clickX = (int)headerBounds.Center().X;
-                clickY = (int)headerBounds.Bottom + 12;
-            }
-            else
-            {
-                var gridBounds = grid.BoundingRectangle;
-                clickX = (int)gridBounds.Left + 120;
-                clickY = (int)gridBounds.Top + 60;
-            }
-
-            SetCursorPos(clickX, clickY);
-            Thread.Sleep(50);
-            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
-            Thread.Sleep(50);
-            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
-
-            Thread.Sleep(300);
-
-            if (to.Equals("กุมภาพันธ์", StringComparison.OrdinalIgnoreCase))
-            {
-                int itemY = clickY + 34;
-                SetCursorPos(clickX, itemY);
-                Thread.Sleep(100);
-                mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
-                Thread.Sleep(50);
-                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
-            }
-            else if (to.Equals("มกราคม", StringComparison.OrdinalIgnoreCase))
-            {
-                int itemY = clickY + 16;
-                SetCursorPos(clickX, itemY);
-                Thread.Sleep(100);
-                mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
-                Thread.Sleep(50);
-                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
-            }
+            if (item.HasValue) list.Add(item.Value);
         }
 
-        // ── Helper สำหรับการค้นหาและวนซ้ำ ──
         private static T? Retry<T>(Func<T?> fn, int timeoutMs = TimeoutMs) where T : class
         {
             var sw = Stopwatch.StartNew();

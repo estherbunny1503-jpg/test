@@ -16,128 +16,111 @@ namespace HRMITestFlaUI.Module.Setup
 {
     public class PosttoPayrollSetupInfoUC
     {
-        // ── ตัวแปรสำหรับเก็บออบเจ็กต์หน้าต่างหลัก, ระบบ Automation และตัวนับผลการทดสอบ (Success/Fail) ──
-        private readonly AutomationElement _mainWindow;
-        private readonly UIA3Automation _automation;
+        // =========================================================================================
+        // หมวดที่ 1: ข้อมูลการทดสอบทั้ง 5 ขั้น (Test Data)
+        // =========================================================================================
 
-        private int _totalSuccess = 0;
-        private int _totalFail = 0;
-
-        // ── ค่าคงที่สำหรับการตั้งค่า Timeout และข้อมูลการระบุตัวตนของฟอร์ม ──
-        private const int TimeoutMs = 6000;
-        private const string FormId = "PosttoPayrollSetupInfoUC";
-        private const string FormTitle = "กำหนดรูปแบบการประมวลผลเข้าระบบเงินเดือน";
-
-        private const string GeneralTabId = "devTabPgGeneral";
-
-        // ── AutomationId ยืนยันแล้วจาก Properties panel ──
-        private const string IdFormatName = "devTxtPPSName";               // "ชื่อรูปแบบประมวลผล"
-
-        private const string IdChkPayDaily = "devChkDaily";                 // "รายวัน" (พนักงานรายวัน)
-        private const string IdLookupDailyItem = "devBtnEmpDaily";          // เลือกรายการ IN-001 ค่าแรงรายวัน (ButtonEdit)
-
-        private const string IdChkPayHourly = "devChkHoury";                // "รายชั่วโมง" (พนักงานรายชั่วโมง)
-        private const string IdLookupHourlyItem = "devBtnEmpHoury";         // เลือกรายการ IN-002 ค่าแรงรายชั่วโมง (ButtonEdit)
-
-        // ── กลุ่ม checkbox ที่ใช้ร่วมกัน ไม่ว่าจะเลือกรายวัน/รายชั่วโมง/ทั้งคู่ ──
-        private const string IdChkMustPayHoliday = "devChkHolidayPayment";       // "ต้องการจ่ายค่าแรงสำหรับวันหยุดนักขัตฤกษ์"
-        private const string IdHolidayDays = "devSpinDayPay";                    // จำนวนวัน (ไม่เกิน 15 วัน)
-
-        private const string IdChkPayHolidayWage = "devchkIsPayLeave";          // "จ่ายค่าแรงวันหยุดนักขัตฤกษ์"
-        private const string IdChkPayHolidayOvertime = "devChkPaySpecialHoliday"; // "จ่ายค่าแรงวันหยุดนักขัตฤกษ์เมื่อมีการทำงานล่วงเวลา"
-
-        // ── ป้ายข้อความ Lookup ค่าแรงรายวัน / รายชั่วโมง ──
-        private const string LabelDailyWageLookup = "ค่าแรงรายวัน(พนักงานรายวัน)";
-        private const string LabelHourlyWageLookup = "ค่าแรงรายชั่วโมง(พนักงานรายชั่วโมง)";
-
-        /* Constructor สำหรับรับค่า MainWindow และ Automation Instance เข้ามาใช้งานภายในคลาส */
-        public PosttoPayrollSetupInfoUC(AutomationElement mainWindow, UIA3Automation automation)
-        {
-            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
-            _automation = automation ?? throw new ArgumentNullException(nameof(automation));
-        }
-
-        private record WageFormatRecord(
+        // --- Data Records สำหรับใช้งานในแต่ละขั้นตอน ---
+        private sealed record WageFormatRecord(
             string Name,
             bool SelectDaily,
             bool SelectHourly,
             string HolidayDays = "15");
 
-        // -------------------------------------------------------------
-        // * Navigation & Search System *
-        // -------------------------------------------------------------
-        /* Method สำหรับค้นหาหน้าจอกำหนดรูปแบบการประมวลผลเข้าระบบเงินเดือนผ่านแถบค้นหาด้านบน (baritemSearch) */
-        private bool TryOpenPosttoPayrollSetupInfoMenu(string stage)
+        private sealed record WageFormatEditItem(
+            string TestCaseId,
+            string ExistingName,
+            string NewName,
+            Action<AutomationElement> EditAction,
+            string SaveButtonName,
+            bool NeedsExplicitClose);
+
+        private sealed record DeleteItem(
+            string TargetName,
+            string DialogBtn,
+            bool ExpectDeleted);
+
+        // [ขั้นที่ 1] ข้อมูลทดสอบการสร้างใหม่ (Add / Navigate)
+        private static readonly WageFormatRecord[] Step1_AddCases =
         {
-            try
+            new("รูปแบบประมวลผล 1", SelectDaily: true,  SelectHourly: false),
+            new("รูปแบบประมวลผล 2", SelectDaily: false, SelectHourly: true),
+            new("รูปแบบประมวลผล 3", SelectDaily: true,  SelectHourly: true),
+            new("รูปแบบประมวลผล 4", SelectDaily: false, SelectHourly: false)
+        };
+
+        // [ขั้นที่ 2] ข้อมูลทดสอบ Validation ตอนเพิ่ม (Add Validation)
+        private const string Step2_DuplicateNameTarget = "รูปแบบประมวลผล 2";
+        private const string Step2_DuplicateNameMessage = "ชื่อรูปแบบการประมวลผล ห้ามซ้ำ กรุณาป้อนข้อมูล";
+
+        // [ขั้นที่ 3] ข้อมูลทดสอบการแก้ไขข้อมูล (Edit Records)
+        private static readonly WageFormatEditItem[] Step3_EditCases =
+        {
+            new("TestCase07_EditRow2", "รูปแบบประมวลผล 2", "P001", (context) =>
             {
-                // 1. ค้นหาช่องค้นหา baritemSearch
-                var searchBox = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("baritemSearch"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit)), 4000)
-                                ?? throw new Exception("ไม่พบช่องค้นหา baritemSearch");
+                TickCheckbox(context, IdChkMustPayHoliday, false);
+            }, "Save", true),
 
-                WaitUntil(() => { try { searchBox.Focus(); return true; } catch { return false; } }, 1000);
-                string searchKeyword = FormTitle;
-
-                if (searchBox.Patterns.Value.IsSupported)
-                    searchBox.Patterns.Value.Pattern.SetValue(searchKeyword);
-                else
-                    Keyboard.Type(searchKeyword);
-
-                // 2. คลิกปุ่มค้นหา barChkSearch
-                var searchBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("barChkSearch"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Find")), 4000)
-                                ?? throw new Exception("ไม่พบปุ่มค้นหา barChkSearch");
-
-                searchBtn.Click();
-
-                // 3. รอและเลือกผลลัพธ์เมนู
-                var menuResult = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName(searchKeyword))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 1"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 21")), 4000)
-                                 ?? throw new Exception("ไม่พบผลลัพธ์เมนูจากการค้นหา");
-
-                menuResult.Focus();
-                menuResult.Click();
-                Keyboard.Press(VirtualKeyShort.ENTER);
-
-                // 4. รอให้ปุ่ม New แสดงบนหน้าจอเพื่อยืนยันว่าเข้าหน้าจอเรียบร้อยแล้ว
-                return WaitUntil(() =>
-                {
-                    var newBtn = _mainWindow.FindFirstDescendant(cf => cf.ByName("New"));
-                    return newBtn != null && newBtn.Properties.IsEnabled.ValueOrDefault && !newBtn.Properties.IsOffscreen.ValueOrDefault;
-                }, TimeoutMs);
-            }
-            catch (Exception ex)
+            new("TestCase08_EditRow3", "รูปแบบประมวลผล 3", "P002", (context) =>
             {
-                LogFailureCounted(stage, $"ค้นหาและเปิดหน้าจอไม่สำเร็จ: {ex.Message}");
-                return false;
-            }
-        }
+                TickCheckbox(context, IdChkPayHolidayWage, false);
+                TickCheckbox(context, IdChkPayHolidayOvertime, false);
+            }, "Save and Close", false)
+        };
 
-        // -------------------------------------------------------------
-        // * 1. ทดสอบการ New *
-        // -------------------------------------------------------------
+        // [ขั้นที่ 4] ข้อมูลทดสอบ Validation ตอนแก้ไข (Edit Validation)
+        private const string EditTargetRow = "รูปแบบประมวลผล 1";
+        private const string EditDuplicateNameTarget = "รูปแบบประมวลผล 4";
+
+        // [ขั้นที่ 5] ข้อมูลทดสอบการลบข้อมูล (Delete Records)
+        private static readonly DeleteItem[] Step5_DeleteCases =
+        {
+            new("รูปแบบประมวลผล 4", "Yes", true),
+            new("P002", "No", false)
+        };
+
+
+        // =========================================================================================
+        // หมวดที่ 2: ส่วนที่ขึ้นกับหน้าจอนั้นๆ (Screen-Specific Implementation)
+        // **เมื่อเปลี่ยนไปทำหน้าจออื่น ต้องมาแก้ไขค่าและเมทอดในส่วนนี้ทั้งหมด**
+        // =========================================================================================
+
+        // 2.1 Locator & Mappings ประจำหน้าจอ
+        private const string MenuName = "กำหนดรูปแบบการประมวลผลเข้าระบบเงินเดือน";
+        private const string ScreenLogName = "PosttoPayrollSetupInfoUC";
+        private const string FormId = "PosttoPayrollSetupInfoUC";
+        private const string FormTitle = "กำหนดรูปแบบการประมวลผลเข้าระบบเงินเดือน";
+        private const string GeneralTabId = "devTabPgGeneral";
+
+        // 2.2 ฟิลด์ Input ประจำหน้าจอ
+        private const string IdFormatName = "devTxtPPSName";
+        private const string IdChkPayDaily = "devChkDaily";
+        private const string IdLookupDailyItem = "devBtnEmpDaily";
+        private const string IdChkPayHourly = "devChkHoury";
+        private const string IdLookupHourlyItem = "devBtnEmpHoury";
+        private const string IdChkMustPayHoliday = "devChkHolidayPayment";
+        private const string IdHolidayDays = "devSpinDayPay";
+        private const string IdChkPayHolidayWage = "devchkIsPayLeave";
+        private const string IdChkPayHolidayOvertime = "devChkPaySpecialHoliday";
+
+        private const string LabelDailyWageLookup = "ค่าแรงรายวัน(พนักงานรายวัน)";
+        private const string LabelHourlyWageLookup = "ค่าแรงรายชั่วโมง(พนักงานรายชั่วโมง)";
+
+        /// <summary>
+        /// ขั้นที่ 1: เปิดหน้าจอและกรอกข้อมูลสร้างใหม่
+        /// </summary>
         public void NavigateToPosttoPayrollSetupInfoUC()
         {
-            var items = new[]
-            {
-                new WageFormatRecord("รูปแบบประมวลผล 1", SelectDaily: true,  SelectHourly: false),
-                new WageFormatRecord("รูปแบบประมวลผล 2", SelectDaily: false, SelectHourly: true),
-                new WageFormatRecord("รูปแบบประมวลผล 3", SelectDaily: true,  SelectHourly: true),
-                new WageFormatRecord("รูปแบบประมวลผล 4", SelectDaily: false, SelectHourly: false),
-            };
-
             string stageName = "TestCase00_AddPosttoPayrollSetupInfo";
-            TestLogger.LogInfo("PosttoPayrollSetupInfoUC", "เริ่มทดสอบหน้าจอ Post to Payroll Setup");
+            TestLogger.LogInfo(ScreenLogName, "เริ่มทดสอบหน้าจอ Post to Payroll Setup");
 
             if (!TryOpenPosttoPayrollSetupInfoMenu(stageName)) return;
 
             Window? form = null;
 
-            for (int i = 0; i < items.Length; i++)
+            for (int i = 0; i < Step1_AddCases.Length; i++)
             {
-                var item = items[i];
+                var item = Step1_AddCases[i];
                 string testName = $"{stageName}_{item.Name}";
 
                 try
@@ -148,7 +131,7 @@ namespace HRMITestFlaUI.Module.Setup
                     FillWageFormatFields(context, item);
 
                     string saveButtonName = i == 0 ? "Save"
-                                          : i == items.Length - 1 ? "Save and Close"
+                                          : i == Step1_AddCases.Length - 1 ? "Save and Close"
                                           : "Save and New";
 
                     if (!TrySaveAndHandleDuplicate(form, testName, item.Name, saveButtonName))
@@ -198,9 +181,9 @@ namespace HRMITestFlaUI.Module.Setup
             }
         }
 
-        // -------------------------------------------------------------
-        // * 2. ทดสอบ แจ้งเตือนต่างๆ เมื่อ New *
-        // -------------------------------------------------------------
+        /// <summary>
+        /// ขั้นที่ 2: รัน Validation ตอนสร้างข้อมูลใหม่
+        /// </summary>
         public void RunAllValidationTests()
         {
             string stageName = "TestCase01-06_Validation";
@@ -218,7 +201,6 @@ namespace HRMITestFlaUI.Module.Setup
 
             var context = GetGeneralTab(form);
 
-            // 2.1 New ไม่กรอกชื่อเลย -> Save -> "ชื่อรูปแบบการประมวลผล ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล"
             RunValidationStep("TestCase01_MissingName", () =>
             {
                 FillTextBox(context, IdFormatName, "");
@@ -228,7 +210,6 @@ namespace HRMITestFlaUI.Module.Setup
                 AssertTaskResultWarning(form, "ชื่อรูปแบบการประมวลผล ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล", "TestCase01_MissingName");
             });
 
-            // 2.2 กรอกชื่อ + ติ๊กต้องจ่ายค่าแรงวันหยุดนักขัตฤกษ์ แต่ไม่กรอกจำนวนวัน -> Save and New -> แจ้งเตือนจำนวนวันห้ามว่าง
             RunValidationStep("TestCase02_MissingHolidayDays", () =>
             {
                 FillTextBox(context, IdFormatName, "รูปแบบประมวลผล 1");
@@ -238,7 +219,6 @@ namespace HRMITestFlaUI.Module.Setup
                 AssertTaskResultWarning(form, "จำนวนวันจ่ายค่าแรงวันหยุดนักขัตฤกษ์ ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล", "TestCase02_MissingHolidayDays");
             });
 
-            // 2.3 ติ๊กรายวัน แต่ไม่เลือกรายการ IN-001 -> Save and New -> แจ้งเตือนรหัสรายได้รายวันห้ามว่าง
             RunValidationStep("TestCase03_MissingDailyItem", () =>
             {
                 FillTextBox(context, IdFormatName, "รูปแบบประมวลผล 1");
@@ -249,7 +229,6 @@ namespace HRMITestFlaUI.Module.Setup
                 AssertTaskResultWarning(form, "รหัสรายได้พนักงานรายวัน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล", "TestCase03_MissingDailyItem");
             });
 
-            // 2.4 ติ๊กเพิ่ม "รายชั่วโมง" ต่อจากที่ "รายวัน" ยังติ๊กค้างมาจากขั้นก่อนหน้า
             RunValidationStep("TestCase05_MissingBothItems", () =>
             {
                 FillTextBox(context, IdFormatName, "รูปแบบประมวลผล 1");
@@ -265,70 +244,358 @@ namespace HRMITestFlaUI.Module.Setup
                 }, "TestCase05_MissingBothItems");
             });
 
-            // 2.6 New ชื่อซ้ำ "รูปแบบประมวลผล 2" -> Save and Close -> แจ้งเตือนชื่อซ้ำ
             string dupCase = "TestCase06_DuplicateName";
             RunValidationStep(dupCase, () =>
             {
                 TickCheckbox(context, IdChkPayDaily, false);
                 TickCheckbox(context, IdChkPayHourly, false);
 
-                FillTextBox(context, IdFormatName, "รูปแบบประมวลผล 2");
+                FillTextBox(context, IdFormatName, Step2_DuplicateNameTarget);
                 ClickFormButton(form, "Save and Close");
-                AssertTaskResultWarning(form, "ชื่อรูปแบบการประมวลผล ห้ามซ้ำ กรุณาป้อนข้อมูล", dupCase);
+                AssertTaskResultWarning(form, Step2_DuplicateNameMessage, dupCase);
                 AssertFormStillOpen(form, dupCase);
             });
 
-            // 2.7-2.9 กด Close -> Yes/Cancel/No บนฟอร์มเดิม
             RunValidationStep($"{dupCase}_CloseSequence", () =>
-                RunCloseDialogSequence(form, dupCase, "ชื่อรูปแบบการประมวลผล ห้ามซ้ำ กรุณาป้อนข้อมูล"));
+                RunCloseDialogSequence(form, dupCase, Step2_DuplicateNameMessage));
         }
 
-        private void RunValidationStep(string testName, Action step)
+        /// <summary>
+        /// ขั้นที่ 3: เลือกแก้ไขรายการในตาราง
+        /// </summary>
+        public void RunEditTests()
         {
+            foreach (var item in Step3_EditCases)
+            {
+                PerformEdit(item.TestCaseId, item.ExistingName, item.NewName, item.EditAction, item.SaveButtonName, item.NeedsExplicitClose);
+            }
+        }
+
+        /// <summary>
+        /// ขั้นที่ 4: รัน Validation ตอนแก้ไขข้อมูล
+        /// </summary>
+        public void RunEditValidationTests()
+        {
+            string baseTestName = "TestCase09_EditValidation";
+
+            Window form;
             try
             {
-                step();
+                form = ClickRowAndOpenEditForm(EditTargetRow, $"{baseTestName}_OpenForm");
             }
             catch (Exception ex)
             {
-                LogFailureCounted(testName, $"ไม่ผ่าน: {ex.Message}");
+                LogFailureCounted($"{baseTestName}_OpenForm", $"เปิดฟอร์ม Edit ไม่สำเร็จ: {ex.Message}");
+                return;
+            }
+
+            var context = GetGeneralTab(form);
+
+            RunValidationStep($"{baseTestName}_MissingName", () =>
+            {
+                FillTextBox(context, IdFormatName, "");
+                ClickFormButton(form, "Save");
+                AssertTaskResultWarning(form, "ชื่อรูปแบบการประมวลผล ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล", $"{baseTestName}_MissingName");
+                AssertFormStillOpen(form, $"{baseTestName}_MissingName");
+            });
+
+            RunValidationStep($"{baseTestName}_DuplicateName", () =>
+            {
+                FillTextBox(context, IdFormatName, EditDuplicateNameTarget);
+                ClickFormButton(form, "Save");
+                AssertTaskResultWarning(form, "ชื่อรูปแบบการประมวลผล ห้ามซ้ำ กรุณาป้อนข้อมูล", $"{baseTestName}_DuplicateName");
+            });
+
+            RunValidationStep($"{baseTestName}_MissingHolidayDays", () =>
+            {
+                FillTextBox(context, IdFormatName, "P001");
+                TickCheckbox(context, IdChkMustPayHoliday, true);
+                FillTextBox(context, IdHolidayDays, "");
+                ClickFormButton(form, "Save and New");
+                AssertTaskResultWarning(form, "จำนวนวันจ่ายค่าแรงวันหยุดนักขัตฤกษ์ ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล", $"{baseTestName}_MissingHolidayDays");
+            });
+
+            RunValidationStep($"{baseTestName}_MissingDailyItem", () =>
+            {
+                FillTextBox(context, IdHolidayDays, "10");
+                TickCheckbox(context, IdChkPayDaily, true);
+                ClearLookupValue(context, IdLookupDailyItem);
+                ClickFormButton(form, "Save and New");
+                AssertTaskResultWarning(form, "รหัสรายได้พนักงานรายวัน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล", $"{baseTestName}_MissingDailyItem");
+            });
+
+            string subCloseCase = $"{baseTestName}_DuplicateName";
+            RunValidationStep($"{baseTestName}_MissingHourlyItem", () =>
+            {
+                TickCheckbox(context, IdChkPayHourly, true);
+                ClickFormButton(form, "Save and Close");
+                AssertTaskResultWarning(form, "รหัสรายได้พนักงานรายชั่วโมง ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล", $"{baseTestName}_MissingHourlyItem");
+                AssertFormStillOpen(form, $"{baseTestName}_MissingHourlyItem");
+            });
+
+            RunValidationStep($"{subCloseCase}_CloseSequence", () =>
+                RunCloseDialogSequence(form, subCloseCase, "รหัสรายได้พนักงานรายชั่วโมง ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล"));
+
+            LogSuccessCounted(baseTestName, "รัน Validation Edit ครบทุกเคสแล้ว");
+        }
+
+        /// <summary>
+        /// ขั้นที่ 5: ทดสอบการลบรายการในตาราง
+        /// </summary>
+        public void RunDeleteTests()
+        {
+            string baseTestName = "TestCase10_Delete";
+
+            foreach (var testCase in Step5_DeleteCases)
+            {
+                RunDeleteCase(baseTestName, testCase.TargetName, testCase.DialogBtn, testCase.ExpectDeleted);
+            }
+
+            LogSuccessCounted(baseTestName, "ทดสอบ Delete ครบทุกเคส");
+            TestLogger.LogInfo(ScreenLogName, $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
+        }
+
+        public void RunAllTestSteps()
+        {
+            NavigateToPosttoPayrollSetupInfoUC();
+            RunAllValidationTests();
+            RunEditTests();
+            RunEditValidationTests();
+            RunDeleteTests();
+        }
+
+        // --- Custom Mapping & Control Logic ประจำหน้าจอ PosttoPayrollSetupInfoUC ---
+        private void FillWageFormatFields(AutomationElement context, WageFormatRecord item)
+        {
+            FillTextBox(context, IdFormatName, item.Name);
+
+            TickCheckbox(context, IdChkMustPayHoliday, true);
+            FillTextBox(context, IdHolidayDays, item.HolidayDays);
+
+            if (item.SelectDaily)
+            {
+                SelectLookupItemByLabel(context, LabelDailyWageLookup, "IN-001");
+                TickCheckbox(context, IdChkPayDaily, true);
+                SelectLookupItem(context, IdLookupDailyItem, "IN-001");
+            }
+
+            if (item.SelectHourly)
+            {
+                SelectLookupItemByLabel(context, LabelHourlyWageLookup, "IN-002");
+                TickCheckbox(context, IdChkPayHourly, true);
+                SelectLookupItem(context, IdLookupHourlyItem, "IN-002");
+            }
+
+            if (item.SelectDaily || item.SelectHourly)
+            {
+                TickCheckbox(context, IdChkPayHolidayWage, true);
+                TickCheckbox(context, IdChkPayHolidayOvertime, true);
             }
         }
 
-        private void RunCloseDialogSequence(Window form, string testNamePrefix, string expectedWarningMessage)
+        private AutomationElement GetGeneralTab(Window form) =>
+            form.FindFirstDescendant(cf => cf.ByAutomationId(GeneralTabId)) ?? form;
+
+        private void ClearLookupValue(AutomationElement context, string lookupId)
         {
-            string subCase = $"{testNamePrefix}_Close_Yes";
-            ClickCloseAndHandleDialog(form, "Yes", subCase);
-            AssertWarningAndFormOpen(form, expectedWarningMessage, subCase);
+            var lookup = context.FindFirstDescendant(cf => cf.ByAutomationId(lookupId))
+                ?? throw new Exception($"หา lookup '{lookupId}' ไม่เจอ (Clear)");
 
-            subCase = $"{testNamePrefix}_Close_Cancel";
-            ClickCloseAndHandleDialog(form, "Cancel", subCase);
-            AssertFormStillOpen(form, subCase);
+            try
+            {
+                var txt = lookup.AsTextBox();
+                if (txt != null && txt.Patterns.Value.IsSupported)
+                {
+                    txt.Focus();
+                    txt.Enter("");
+                    return;
+                }
+            }
+            catch { }
 
-            subCase = $"{testNamePrefix}_Close_No";
-            ClickCloseAndHandleDialog(form, "No", subCase);
-            AssertFormClosed(form, subCase);
+            try
+            {
+                lookup.Focus();
+                Keyboard.Press(VirtualKeyShort.CONTROL);
+                Keyboard.Type("a");
+                Keyboard.Release(VirtualKeyShort.CONTROL);
+                Keyboard.Press(VirtualKeyShort.BACK);
+                Keyboard.Press(VirtualKeyShort.DELETE);
+                Keyboard.Press(VirtualKeyShort.TAB);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"ล้างค่า lookup '{lookupId}' ไม่สำเร็จ: {ex.Message}");
+            }
         }
 
-        // -------------------------------------------------------------
-        // * 3. ทดสอบ Edit *
-        // -------------------------------------------------------------
-        public void RunEditTests()
+        private void SelectLookupItem(AutomationElement context, string lookupId, string itemCode)
         {
-            PerformEdit("TestCase07_EditRow2", existingName: "รูปแบบประมวลผล 2",
-                newName: "P001", editAction: (context) =>
-                {
-                    TickCheckbox(context, IdChkMustPayHoliday, false);
-                },
-                saveButtonName: "Save", needsExplicitClose: true);
+            var lookup = context.FindFirstDescendant(cf => cf.ByAutomationId(lookupId))
+                ?? throw new Exception($"หา lookup '{lookupId}' ไม่เจอ");
 
-            PerformEdit("TestCase08_EditRow3", existingName: "รูปแบบประมวลผล 3",
-                newName: "P002", editAction: (context) =>
+            OpenLookupPopupAndSelect(lookup, itemCode);
+        }
+
+        private void SelectLookupItemByLabel(AutomationElement context, string labelText, string? itemCode)
+        {
+            var label = context.FindAllDescendants(cf => cf.ByControlType(ControlType.Text))
+                .FirstOrDefault(el => !string.IsNullOrEmpty(el.Name) && el.Name.Contains(labelText, StringComparison.OrdinalIgnoreCase))
+                ?? throw new Exception($"หาป้ายข้อความ '{labelText}' ไม่เจอ");
+
+            var labelRect = label.BoundingRectangle;
+
+            var edit = context.FindAllDescendants(cf => cf.ByControlType(ControlType.Edit))
+                .Where(el => Math.Abs(el.BoundingRectangle.Top - labelRect.Top) < 20 && el.BoundingRectangle.Left >= labelRect.Left)
+                .OrderBy(el => el.BoundingRectangle.Left)
+                .FirstOrDefault()
+                ?? throw new Exception($"หาช่องกรอกข้างป้าย '{labelText}' ไม่เจอ");
+
+            var editRect = edit.BoundingRectangle;
+
+            var ellipsisButton = context.FindAllDescendants(cf => cf.ByControlType(ControlType.Button))
+                .Where(b => Math.Abs(b.BoundingRectangle.Top - editRect.Top) < 15 && b.BoundingRectangle.Left >= editRect.Left)
+                .OrderBy(b => b.BoundingRectangle.Left)
+                .FirstOrDefault();
+
+            OpenLookupPopupAndSelect(ellipsisButton ?? edit, itemCode);
+        }
+
+        private void OpenLookupPopupAndSelect(AutomationElement lookupOrButton, string? itemCode)
+        {
+            var ellipsisButton = lookupOrButton.Properties.ControlType.ValueOrDefault == ControlType.Button
+                ? lookupOrButton
+                : lookupOrButton.FindAllDescendants(cf => cf.ByControlType(ControlType.Button)).FirstOrDefault();
+
+            try { lookupOrButton.Focus(); } catch { }
+
+            if (ellipsisButton != null)
+            {
+                try
                 {
-                    TickCheckbox(context, IdChkPayHolidayWage, false);
-                    TickCheckbox(context, IdChkPayHolidayOvertime, false);
-                },
-                saveButtonName: "Save and Close", needsExplicitClose: false);
+                    Mouse.MoveTo(ellipsisButton.BoundingRectangle.Center());
+                    Mouse.Click(MouseButton.Left);
+                }
+                catch
+                {
+                    try { ellipsisButton.Click(); } catch { lookupOrButton.Click(); }
+                }
+            }
+            else
+            {
+                lookupOrButton.Click();
+            }
+
+            AutomationElement? popup = Retry(() =>
+            {
+                var modal = _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault();
+                if (modal != null && modal.FindFirstDescendant(cf => cf.ByName("Select")) != null)
+                    return (AutomationElement)modal;
+
+                var desktop = _automation.GetDesktop();
+                return desktop.FindAllChildren(cf => cf.ByControlType(ControlType.Window))
+                    .FirstOrDefault(w => w.Properties.ProcessId.IsSupported
+                        && !w.Equals(_mainWindow)
+                        && w.FindFirstDescendant(cf => cf.ByName("Select")) != null);
+            }, timeoutMs: 3000);
+
+            AutomationElement searchRoot = popup ?? lookupOrButton;
+
+            var selectButton = Retry(() => searchRoot.FindFirstDescendant(cf => cf.ByName("Select")), timeoutMs: 3000);
+
+            if (selectButton != null)
+            {
+                try
+                {
+                    selectButton.Click();
+                }
+                catch
+                {
+                    try
+                    {
+                        Mouse.MoveTo(selectButton.BoundingRectangle.Center());
+                        Mouse.Click(MouseButton.Left);
+                    }
+                    catch { }
+                }
+            }
+            else
+            {
+                Func<AutomationElement, bool> rowMatches = itemCode == null
+                    ? (_ => true)
+                    : (row => row.FindAllDescendants()
+                        .Any(cell => !string.IsNullOrEmpty(cell.Name) &&
+                            cell.Name.Contains(itemCode, StringComparison.OrdinalIgnoreCase)));
+
+                var matchingRow = Retry(() =>
+                    searchRoot.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem))
+                        .FirstOrDefault(rowMatches),
+                    timeoutMs: 2000)
+                    ?? Retry(() =>
+                    searchRoot.FindAllDescendants(cf => cf.ByControlType(ControlType.ListItem))
+                        .FirstOrDefault(rowMatches),
+                    timeoutMs: 1000);
+
+                if (matchingRow != null)
+                {
+                    try
+                    {
+                        Mouse.MoveTo(matchingRow.BoundingRectangle.Center());
+                        Mouse.DoubleClick();
+                    }
+                    catch
+                    {
+                        try { matchingRow.Click(); } catch { }
+                        Keyboard.Press(VirtualKeyShort.RETURN);
+                    }
+                }
+                else if (itemCode != null)
+                {
+                    Keyboard.Type(itemCode);
+                    Keyboard.Press(VirtualKeyShort.RETURN);
+                }
+            }
+
+            if (popup != null)
+            {
+                WaitForClosed(() => popup);
+            }
+        }
+
+        private Window OpenPosttoPayrollSetupInfoForm()
+        {
+            _mainWindow.FindFirstDescendant(cf => cf.ByName("New"))?.Click();
+            var form = Retry(FindOpenPosttoPayrollSetupInfoForm, timeoutMs: 8000) ?? throw new Exception("หาฟอร์ม PosttoPayrollSetupInfoUC ไม่เจอ");
+            WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId(IdFormatName)) != null, 4000);
+            return form;
+        }
+
+        private Window ClickRowAndOpenEditForm(string nameToFind, string testName)
+        {
+            RefreshGrid();
+
+            AutomationElement? row = Retry(() => FindElementMatchingValue(nameToFind), timeoutMs: 8000);
+            if (row == null)
+            {
+                RefreshGrid();
+                row = Retry(() => FindElementMatchingValue(nameToFind), timeoutMs: 8000);
+            }
+
+            if (row == null) throw new Exception($"หาแถวสำหรับ '{nameToFind}' ไม่เจอ");
+
+            WaitUntil(() => { try { row.Focus(); return true; } catch { return false; } }, 1000);
+            row.Click();
+
+            var editButton = Retry(() =>
+            {
+                var b = _mainWindow.FindFirstDescendant(cf => cf.ByName("Edit"));
+                return (b != null && b.Properties.IsEnabled.ValueOrDefault) ? b : null;
+            }, 3000) ?? throw new Exception("หาปุ่ม Edit ไม่เจอ");
+
+            editButton.Click();
+            var editForm = Retry(FindOpenPosttoPayrollSetupInfoForm, 6000) ?? throw new Exception("หาฟอร์ม PosttoPayrollSetupInfoUC ไม่เจอ");
+            WaitUntil(() => editForm.FindFirstDescendant(cf => cf.ByAutomationId(IdFormatName)) != null, 3000);
+            return editForm;
         }
 
         private void PerformEdit(string testName, string existingName,
@@ -362,102 +629,152 @@ namespace HRMITestFlaUI.Module.Setup
             }
         }
 
-        // -------------------------------------------------------------
-        // * 4. ทดสอบ การแจ้งเตือน Edit *
-        // -------------------------------------------------------------
-        public void RunEditValidationTests()
+        private void DeleteRecordAndVerify(string name, string confirmButton, string testName, bool expectDeleted)
         {
-            string baseTestName = "TestCase09_EditValidation";
+            RefreshGrid();
 
-            Window form;
+            AutomationElement? row = Retry(() => FindElementMatchingValue(name), timeoutMs: 8000);
+            if (row == null)
+            {
+                RefreshGrid();
+                row = Retry(() => FindElementMatchingValue(name), timeoutMs: 8000);
+            }
+
+            if (row == null) throw new Exception($"หาแถวสำหรับลบ ({name}) ไม่เจอ");
+
+            try { row.Focus(); } catch { }
+            row.Click();
+
+            var deleteButton = Retry(() =>
+            {
+                var b = _mainWindow.FindFirstDescendant(cf => cf.ByName("Delete"));
+                return (b != null && b.Properties.IsEnabled.ValueOrDefault) ? b : null;
+            }, 3000) ?? throw new Exception("หาปุ่ม Delete ไม่เจอ");
+            deleteButton.Click();
+
+            Window? confirmDialog = Retry(() =>
+                _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault()
+                ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByName("คำเตือน"))?.AsWindow(),
+                timeoutMs: 4000);
+
+            if (confirmDialog == null) throw new Exception("กด Delete แล้วไม่พบ Pop-up ยืนยัน");
+            ClickDialogButton(confirmDialog, confirmButton, "ยืนยันการลบ");
+            WaitForClosed(() => confirmDialog);
+
+            bool stillExistsOnGrid = VerifyRecordExistsInGrid(name, timeoutMs: 3000, refreshGrid: false);
+            bool hasSuccessMessage = FindTaskResultPanel(_mainWindow.AsWindow(), timeoutMs: 500)?
+                .FindAllDescendants()
+                .Any(e => !string.IsNullOrEmpty(e.Name) && e.Name.Contains("Deleted succeeded")) ?? false;
+
+            if (expectDeleted)
+            {
+                if (stillExistsOnGrid && !hasSuccessMessage)
+                {
+                    string msg = $"'{name}' ลบข้อมูลไม่สำเร็จ";
+                    LogFailureCounted(testName, msg);
+                    throw new Exception(msg);
+                }
+                LogSuccessCounted(testName, $"'{name}' ถูกลบสำเร็จ");
+            }
+            else
+            {
+                if (!stillExistsOnGrid)
+                {
+                    string msg = $"'{name}' ลบข้อมูลผิดพลาด";
+                    LogFailureCounted(testName, msg);
+                    throw new Exception(msg);
+                }
+                LogSuccessCounted(testName, $"'{name}' ข้อมูลยังไม่ถูกลบ");
+            }
+        }
+
+
+        // =========================================================================================
+        // หมวดที่ 3: ส่วนการทำงานกลางที่ตายตัว (Common / Reusable Helpers)
+        // **ใช้งานร่วมกันได้ทุกหน้าจอ ไม่ต้องแก้ไขคำสั่งเมื่อเปลี่ยนหน้า**
+        // =========================================================================================
+
+        private readonly AutomationElement _mainWindow;
+        private readonly UIA3Automation _automation;
+        private int _totalSuccess = 0;
+        private int _totalFail = 0;
+        private const int TimeoutMs = 6000;
+
+        public PosttoPayrollSetupInfoUC(AutomationElement mainWindow, UIA3Automation automation)
+        {
+            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
+            _automation = automation ?? throw new ArgumentNullException(nameof(automation));
+        }
+
+        private bool TryOpenPosttoPayrollSetupInfoMenu(string stage)
+        {
             try
             {
-                form = ClickRowAndOpenEditForm("รูปแบบประมวลผล 1", $"{baseTestName}_OpenForm");
+                var searchBox = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("baritemSearch"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit)), 4000)
+                                ?? throw new Exception("ไม่พบช่องค้นหา baritemSearch");
+
+                WaitUntil(() => { try { searchBox.Focus(); return true; } catch { return false; } }, 1000);
+                string searchKeyword = FormTitle;
+
+                if (searchBox.Patterns.Value.IsSupported)
+                    searchBox.Patterns.Value.Pattern.SetValue(searchKeyword);
+                else
+                    Keyboard.Type(searchKeyword);
+
+                var searchBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("barChkSearch"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Find")), 4000)
+                                ?? throw new Exception("ไม่พบปุ่มค้นหา barChkSearch");
+
+                searchBtn.Click();
+
+                var menuResult = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName(searchKeyword))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 1"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 21")), 4000)
+                                 ?? throw new Exception("ไม่พบผลลัพธ์เมนูจากการค้นหา");
+
+                menuResult.Focus();
+                menuResult.Click();
+                Keyboard.Press(VirtualKeyShort.ENTER);
+
+                return WaitUntil(() =>
+                {
+                    var newBtn = _mainWindow.FindFirstDescendant(cf => cf.ByName("New"));
+                    return newBtn != null && newBtn.Properties.IsEnabled.ValueOrDefault && !newBtn.Properties.IsOffscreen.ValueOrDefault;
+                }, TimeoutMs);
             }
             catch (Exception ex)
             {
-                LogFailureCounted($"{baseTestName}_OpenForm", $"เปิดฟอร์ม Edit ไม่สำเร็จ: {ex.Message}");
-                return;
+                LogFailureCounted(stage, $"ค้นหาและเปิดหน้าจอไม่สำเร็จ: {ex.Message}");
+                return false;
             }
-
-            var context = GetGeneralTab(form);
-
-            // 4.1 ลบชื่อรูปแบบประมวลผลออก -> Save -> แจ้งเตือนชื่อห้ามว่าง ไม่ปิดหน้าจอ
-            RunValidationStep($"{baseTestName}_MissingName", () =>
-            {
-                FillTextBox(context, IdFormatName, "");
-                ClickFormButton(form, "Save");
-                AssertTaskResultWarning(form, "ชื่อรูปแบบการประมวลผล ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล", $"{baseTestName}_MissingName");
-                AssertFormStillOpen(form, $"{baseTestName}_MissingName");
-            });
-
-            // 4.2 พิมพ์ชื่อซ้ำ -> ใช้ปุ่ม Save ในโหมดแก้ไขเพื่อให้การเตือนทำงานแน่นอน
-            RunValidationStep($"{baseTestName}_DuplicateName", () =>
-            {
-                FillTextBox(context, IdFormatName, "รูปแบบประมวลผล 4");
-                ClickFormButton(form, "Save");
-                AssertTaskResultWarning(form, "ชื่อรูปแบบการประมวลผล ห้ามซ้ำ กรุณาป้อนข้อมูล", $"{baseTestName}_DuplicateName");
-            });
-
-            // 4.3 พิมพ์ "P001" + ติ๊กต้องการจ่ายค่าแรงวันหยุดนักขัตฤกษ์ แต่ไม่กรอกจำนวนวัน -> Save and New -> แจ้งเตือน
-            RunValidationStep($"{baseTestName}_MissingHolidayDays", () =>
-            {
-                FillTextBox(context, IdFormatName, "P001");
-                TickCheckbox(context, IdChkMustPayHoliday, true);
-                FillTextBox(context, IdHolidayDays, "");
-                ClickFormButton(form, "Save and New");
-                AssertTaskResultWarning(form, "จำนวนวันจ่ายค่าแรงวันหยุดนักขัตฤกษ์ ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล", $"{baseTestName}_MissingHolidayDays");
-            });
-
-            // 4.4 ติ๊กรายวัน ไม่เลือกรายการ -> Save and New -> แจ้งเตือน
-            RunValidationStep($"{baseTestName}_MissingDailyItem", () =>
-            {
-                FillTextBox(context, IdHolidayDays, "10");
-                TickCheckbox(context, IdChkPayDaily, true);
-                ClearLookupValue(context, IdLookupDailyItem);
-                ClickFormButton(form, "Save and New");
-                AssertTaskResultWarning(form, "รหัสรายได้พนักงานรายวัน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล", $"{baseTestName}_MissingDailyItem");
-            });
-
-            // 4.5 ติ๊กเพิ่มรายชั่วโมงด้วย -> Save and Close -> แจ้งเตือน
-            string subCloseCase = $"{baseTestName}_DuplicateName";
-            RunValidationStep($"{baseTestName}_MissingHourlyItem", () =>
-            {
-                TickCheckbox(context, IdChkPayHourly, true);
-                ClickFormButton(form, "Save and Close");
-                AssertTaskResultWarning(form, "รหัสรายได้พนักงานรายชั่วโมง ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล", $"{baseTestName}_MissingHourlyItem");
-                AssertFormStillOpen(form, $"{baseTestName}_MissingHourlyItem");
-            });
-
-            // 4.6-4.8 กด Close -> Yes/Cancel/No บนฟอร์มเดิม
-            RunValidationStep($"{subCloseCase}_CloseSequence", () =>
-                RunCloseDialogSequence(form, subCloseCase, "รหัสรายได้พนักงานรายชั่วโมง ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล"));
-
-            LogSuccessCounted(baseTestName, "รัน Validation Edit ครบทุกเคสแล้ว");
         }
 
-        // -------------------------------------------------------------
-        // * 5. ทดสอบ Delete *
-        // -------------------------------------------------------------
-        public void RunDeleteTests()
+        private void RunValidationStep(string testName, Action step)
         {
-            string baseTestName = "TestCase10_Delete";
-
-            RunDeleteCase(baseTestName, name: "รูปแบบประมวลผล 4", confirmButton: "Yes", expectDeleted: true);
-            RunDeleteCase(baseTestName, name: "P002", confirmButton: "No", expectDeleted: false);
-
-            LogSuccessCounted(baseTestName, "ทดสอบ Delete ครบทุกเคส");
-            TestLogger.LogInfo("PosttoPayrollSetupInfoUC",
-                $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
+            try
+            {
+                step();
+            }
+            catch (Exception ex)
+            {
+                LogFailureCounted(testName, $"ไม่ผ่าน: {ex.Message}");
+            }
         }
 
-        public void RunAllTestSteps()
+        private void RunCloseDialogSequence(Window form, string testNamePrefix, string expectedWarningMessage)
         {
-            NavigateToPosttoPayrollSetupInfoUC();
-            RunAllValidationTests();
-            RunEditTests();
-            RunEditValidationTests();
-            RunDeleteTests();
+            string subCase = $"{testNamePrefix}_Close_Yes";
+            ClickCloseAndHandleDialog(form, "Yes", subCase);
+            AssertWarningAndFormOpen(form, expectedWarningMessage, subCase);
+
+            subCase = $"{testNamePrefix}_Close_Cancel";
+            ClickCloseAndHandleDialog(form, "Cancel", subCase);
+            AssertFormStillOpen(form, subCase);
+
+            subCase = $"{testNamePrefix}_Close_No";
+            ClickCloseAndHandleDialog(form, "No", subCase);
+            AssertFormClosed(form, subCase);
         }
 
         private void RunDeleteCase(string baseTestName, string name, string confirmButton, bool expectDeleted)
@@ -473,9 +790,29 @@ namespace HRMITestFlaUI.Module.Setup
             }
         }
 
-        // -------------------------------------------------------------
-        // * Shared test-flow helpers *
-        // -------------------------------------------------------------
+        private Window GetOrOpenPosttoPayrollSetupInfoForm()
+        {
+            Window? form = Retry(FindOpenPosttoPayrollSetupInfoForm, 1500);
+            if (form != null) return form;
+
+            _mainWindow.FindFirstDescendant(cf => cf.ByName("New"))?.Click();
+            form = Retry(FindOpenPosttoPayrollSetupInfoForm, timeoutMs: 8000);
+            if (form == null) throw new Exception("หาฟอร์ม PosttoPayrollSetupInfoUC ไม่เจอ");
+            WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId(IdFormatName)) != null, 4000);
+            return form;
+        }
+
+        private Window? FindOpenPosttoPayrollSetupInfoForm() =>
+            _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault()
+            ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByAutomationId(FormId).Or(cf.ByName(FormTitle)))?.AsWindow();
+
+        private void ClickFormButton(Window form, string buttonName, int timeoutMs = 3000)
+        {
+            var button = Retry(() => form.FindFirstDescendant(cf => cf.ByName(buttonName)), timeoutMs)
+                ?? throw new Exception($"หาปุ่ม '{buttonName}' บนฟอร์มไม่เจอ");
+            button.Click();
+        }
+
         private bool TrySaveAndHandleDuplicate(Window form, string testName, string name, string saveButtonName)
         {
             ClickFormButton(form, saveButtonName);
@@ -496,44 +833,6 @@ namespace HRMITestFlaUI.Module.Setup
                 LogFailureCounted(testName, $"ปิดฟอร์มไม่สำเร็จ: {closeEx.Message}");
             }
             return false;
-        }
-
-        private void FillWageFormatFields(AutomationElement context, WageFormatRecord item)
-        {
-            FillTextBox(context, IdFormatName, item.Name);
-
-            TickCheckbox(context, IdChkMustPayHoliday, true);
-            FillTextBox(context, IdHolidayDays, item.HolidayDays);
-
-            if (item.SelectDaily)
-            {
-                SelectLookupItemByLabel(context, LabelDailyWageLookup, "IN-001");
-                TickCheckbox(context, IdChkPayDaily, true);
-                SelectLookupItem(context, IdLookupDailyItem, "IN-001");
-            }
-
-            if (item.SelectHourly)
-            {
-                SelectLookupItemByLabel(context, LabelHourlyWageLookup, "IN-002");
-                TickCheckbox(context, IdChkPayHourly, true);
-                SelectLookupItem(context, IdLookupHourlyItem, "IN-002");
-            }
-
-            if (item.SelectDaily || item.SelectHourly)
-            {
-                TickCheckbox(context, IdChkPayHolidayWage, true);
-                TickCheckbox(context, IdChkPayHolidayOvertime, true);
-            }
-        }
-
-        private AutomationElement GetGeneralTab(Window form) =>
-            form.FindFirstDescendant(cf => cf.ByAutomationId(GeneralTabId)) ?? form;
-
-        private void ClickFormButton(Window form, string buttonName, int timeoutMs = 3000)
-        {
-            var button = Retry(() => form.FindFirstDescendant(cf => cf.ByName(buttonName)), timeoutMs)
-                ?? throw new Exception($"หาปุ่ม '{buttonName}' บนฟอร์มไม่เจอ");
-            button.Click();
         }
 
         private string? TryDetectDuplicateWarning(Window form)
@@ -608,117 +907,6 @@ namespace HRMITestFlaUI.Module.Setup
                 catch { }
             }
             return null;
-        }
-
-        private Window GetOrOpenPosttoPayrollSetupInfoForm()
-        {
-            Window? form = Retry(FindOpenPosttoPayrollSetupInfoForm, 1500);
-            if (form != null) return form;
-
-            _mainWindow.FindFirstDescendant(cf => cf.ByName("New"))?.Click();
-            form = Retry(FindOpenPosttoPayrollSetupInfoForm, timeoutMs: 8000);
-            if (form == null) throw new Exception("หาฟอร์ม PosttoPayrollSetupInfoUC ไม่เจอ");
-            WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId(IdFormatName)) != null, 4000);
-            return form;
-        }
-
-        private Window OpenPosttoPayrollSetupInfoForm()
-        {
-            _mainWindow.FindFirstDescendant(cf => cf.ByName("New"))?.Click();
-            var form = Retry(FindOpenPosttoPayrollSetupInfoForm, timeoutMs: 8000) ?? throw new Exception("หาฟอร์ม PosttoPayrollSetupInfoUC ไม่เจอ");
-            WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId(IdFormatName)) != null, 4000);
-            return form;
-        }
-
-        private Window? FindOpenPosttoPayrollSetupInfoForm() =>
-            _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault()
-            ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByAutomationId(FormId).Or(cf.ByName(FormTitle)))?.AsWindow();
-
-        private Window ClickRowAndOpenEditForm(string nameToFind, string testName)
-        {
-            RefreshGrid();
-
-            AutomationElement? row = Retry(() => FindElementMatchingValue(nameToFind), timeoutMs: 8000);
-            if (row == null)
-            {
-                RefreshGrid();
-                row = Retry(() => FindElementMatchingValue(nameToFind), timeoutMs: 8000);
-            }
-
-            if (row == null) throw new Exception($"หาแถวสำหรับ '{nameToFind}' ไม่เจอ");
-
-            WaitUntil(() => { try { row.Focus(); return true; } catch { return false; } }, 1000);
-            row.Click();
-
-            var editButton = Retry(() =>
-            {
-                var b = _mainWindow.FindFirstDescendant(cf => cf.ByName("Edit"));
-                return (b != null && b.Properties.IsEnabled.ValueOrDefault) ? b : null;
-            }, 3000) ?? throw new Exception("หาปุ่ม Edit ไม่เจอ");
-
-            editButton.Click();
-            var editForm = Retry(FindOpenPosttoPayrollSetupInfoForm, 6000) ?? throw new Exception("หาฟอร์ม PosttoPayrollSetupInfoUC ไม่เจอ");
-            WaitUntil(() => editForm.FindFirstDescendant(cf => cf.ByAutomationId(IdFormatName)) != null, 3000);
-            return editForm;
-        }
-
-        private void DeleteRecordAndVerify(string name, string confirmButton, string testName, bool expectDeleted)
-        {
-            RefreshGrid();
-
-            AutomationElement? row = Retry(() => FindElementMatchingValue(name), timeoutMs: 8000);
-            if (row == null)
-            {
-                RefreshGrid();
-                row = Retry(() => FindElementMatchingValue(name), timeoutMs: 8000);
-            }
-
-            if (row == null) throw new Exception($"หาแถวสำหรับลบ ({name}) ไม่เจอ");
-
-            try { row.Focus(); } catch { }
-            row.Click();
-
-            var deleteButton = Retry(() =>
-            {
-                var b = _mainWindow.FindFirstDescendant(cf => cf.ByName("Delete"));
-                return (b != null && b.Properties.IsEnabled.ValueOrDefault) ? b : null;
-            }, 3000) ?? throw new Exception("หาปุ่ม Delete ไม่เจอ");
-            deleteButton.Click();
-
-            Window? confirmDialog = Retry(() =>
-                _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault()
-                ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByName("คำเตือน"))?.AsWindow(),
-                timeoutMs: 4000);
-
-            if (confirmDialog == null) throw new Exception("กด Delete แล้วไม่พบ Pop-up ยืนยัน");
-            ClickDialogButton(confirmDialog, confirmButton, "ยืนยันการลบ");
-            WaitForClosed(() => confirmDialog);
-
-            bool stillExistsOnGrid = VerifyRecordExistsInGrid(name, timeoutMs: 3000, refreshGrid: false);
-            bool hasSuccessMessage = FindTaskResultPanel(_mainWindow.AsWindow(), timeoutMs: 500)?
-                .FindAllDescendants()
-                .Any(e => !string.IsNullOrEmpty(e.Name) && e.Name.Contains("Deleted succeeded")) ?? false;
-
-            if (expectDeleted)
-            {
-                if (stillExistsOnGrid && !hasSuccessMessage)
-                {
-                    string msg = $"'{name}' ลบข้อมูลไม่สำเร็จ";
-                    LogFailureCounted(testName, msg);
-                    throw new Exception(msg);
-                }
-                LogSuccessCounted(testName, $"'{name}' ถูกลบสำเร็จ");
-            }
-            else
-            {
-                if (!stillExistsOnGrid)
-                {
-                    string msg = $"'{name}' ลบข้อมูลผิดพลาด";
-                    LogFailureCounted(testName, msg);
-                    throw new Exception(msg);
-                }
-                LogSuccessCounted(testName, $"'{name}' ข้อมูลยังไม่ถูกลบ");
-            }
         }
 
         private void ClickCloseAndHandleDialog(Window form, string buttonToClick, string testName)
@@ -889,39 +1077,6 @@ namespace HRMITestFlaUI.Module.Setup
             TestLogger.LogFailure(testName, message);
         }
 
-        private void ClearLookupValue(AutomationElement context, string lookupId)
-        {
-            var lookup = context.FindFirstDescendant(cf => cf.ByAutomationId(lookupId))
-                ?? throw new Exception($"หา lookup '{lookupId}' ไม่เจอ (Clear)");
-
-            try
-            {
-                var txt = lookup.AsTextBox();
-                if (txt != null && txt.Patterns.Value.IsSupported)
-                {
-                    txt.Focus();
-                    txt.Enter("");
-                    return;
-                }
-            }
-            catch { }
-
-            try
-            {
-                lookup.Focus();
-                Keyboard.Press(VirtualKeyShort.CONTROL);
-                Keyboard.Type("a");
-                Keyboard.Release(VirtualKeyShort.CONTROL);
-                Keyboard.Press(VirtualKeyShort.BACK);
-                Keyboard.Press(VirtualKeyShort.DELETE);
-                Keyboard.Press(VirtualKeyShort.TAB);
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"ล้างค่า lookup '{lookupId}' ไม่สำเร็จ: {ex.Message}");
-            }
-        }
-
         private void FillTextBox(AutomationElement context, string automationId, string text)
         {
             var txt = context.FindFirstDescendant(cf => cf.ByAutomationId(automationId))?.AsTextBox()
@@ -953,7 +1108,7 @@ namespace HRMITestFlaUI.Module.Setup
             }
         }
 
-        private void TickCheckbox(AutomationElement context, string checkboxId, bool tick)
+        private static void TickCheckbox(AutomationElement context, string checkboxId, bool tick)
         {
             var found = context.FindFirstDescendant(cf => cf.ByAutomationId(checkboxId))
                 ?? throw new Exception($"หา checkbox '{checkboxId}' ไม่เจอ");
@@ -977,139 +1132,6 @@ namespace HRMITestFlaUI.Module.Setup
                     Keyboard.Type(VirtualKeyShort.SPACE);
                 }
                 catch { }
-            }
-        }
-
-        private void SelectLookupItem(AutomationElement context, string lookupId, string itemCode)
-        {
-            var lookup = context.FindFirstDescendant(cf => cf.ByAutomationId(lookupId))
-                ?? throw new Exception($"หา lookup '{lookupId}' ไม่เจอ");
-
-            OpenLookupPopupAndSelect(lookup, itemCode);
-        }
-
-        private void SelectLookupItemByLabel(AutomationElement context, string labelText, string? itemCode)
-        {
-            var label = context.FindAllDescendants(cf => cf.ByControlType(ControlType.Text))
-                .FirstOrDefault(el => !string.IsNullOrEmpty(el.Name) && el.Name.Contains(labelText, StringComparison.OrdinalIgnoreCase))
-                ?? throw new Exception($"หาป้ายข้อความ '{labelText}' ไม่เจอ");
-
-            var labelRect = label.BoundingRectangle;
-
-            var edit = context.FindAllDescendants(cf => cf.ByControlType(ControlType.Edit))
-                .Where(el => Math.Abs(el.BoundingRectangle.Top - labelRect.Top) < 20 && el.BoundingRectangle.Left >= labelRect.Left)
-                .OrderBy(el => el.BoundingRectangle.Left)
-                .FirstOrDefault()
-                ?? throw new Exception($"หาช่องกรอกข้างป้าย '{labelText}' ไม่เจอ");
-
-            var editRect = edit.BoundingRectangle;
-
-            var ellipsisButton = context.FindAllDescendants(cf => cf.ByControlType(ControlType.Button))
-                .Where(b => Math.Abs(b.BoundingRectangle.Top - editRect.Top) < 15 && b.BoundingRectangle.Left >= editRect.Left)
-                .OrderBy(b => b.BoundingRectangle.Left)
-                .FirstOrDefault();
-
-            OpenLookupPopupAndSelect(ellipsisButton ?? edit, itemCode);
-        }
-
-        private void OpenLookupPopupAndSelect(AutomationElement lookupOrButton, string? itemCode)
-        {
-            var ellipsisButton = lookupOrButton.Properties.ControlType.ValueOrDefault == ControlType.Button
-                ? lookupOrButton
-                : lookupOrButton.FindAllDescendants(cf => cf.ByControlType(ControlType.Button)).FirstOrDefault();
-
-            try { lookupOrButton.Focus(); } catch { }
-
-            if (ellipsisButton != null)
-            {
-                try
-                {
-                    Mouse.MoveTo(ellipsisButton.BoundingRectangle.Center());
-                    Mouse.Click(MouseButton.Left);
-                }
-                catch
-                {
-                    try { ellipsisButton.Click(); } catch { lookupOrButton.Click(); }
-                }
-            }
-            else
-            {
-                lookupOrButton.Click();
-            }
-
-            AutomationElement? popup = Retry(() =>
-            {
-                var modal = _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault();
-                if (modal != null && modal.FindFirstDescendant(cf => cf.ByName("Select")) != null)
-                    return (AutomationElement)modal;
-
-                var desktop = _automation.GetDesktop();
-                return desktop.FindAllChildren(cf => cf.ByControlType(ControlType.Window))
-                    .FirstOrDefault(w => w.Properties.ProcessId.IsSupported
-                        && !w.Equals(_mainWindow)
-                        && w.FindFirstDescendant(cf => cf.ByName("Select")) != null);
-            }, timeoutMs: 3000);
-
-            AutomationElement searchRoot = popup ?? lookupOrButton;
-
-            var selectButton = Retry(() => searchRoot.FindFirstDescendant(cf => cf.ByName("Select")), timeoutMs: 3000);
-
-            if (selectButton != null)
-            {
-                try
-                {
-                    selectButton.Click();
-                }
-                catch
-                {
-                    try
-                    {
-                        Mouse.MoveTo(selectButton.BoundingRectangle.Center());
-                        Mouse.Click(MouseButton.Left);
-                    }
-                    catch { }
-                }
-            }
-            else
-            {
-                Func<AutomationElement, bool> rowMatches = itemCode == null
-                    ? (_ => true)
-                    : (row => row.FindAllDescendants()
-                        .Any(cell => !string.IsNullOrEmpty(cell.Name) &&
-                            cell.Name.Contains(itemCode, StringComparison.OrdinalIgnoreCase)));
-
-                var matchingRow = Retry(() =>
-                    searchRoot.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem))
-                        .FirstOrDefault(rowMatches),
-                    timeoutMs: 2000)
-                    ?? Retry(() =>
-                    searchRoot.FindAllDescendants(cf => cf.ByControlType(ControlType.ListItem))
-                        .FirstOrDefault(rowMatches),
-                    timeoutMs: 1000);
-
-                if (matchingRow != null)
-                {
-                    try
-                    {
-                        Mouse.MoveTo(matchingRow.BoundingRectangle.Center());
-                        Mouse.DoubleClick();
-                    }
-                    catch
-                    {
-                        try { matchingRow.Click(); } catch { }
-                        Keyboard.Press(VirtualKeyShort.RETURN);
-                    }
-                }
-                else if (itemCode != null)
-                {
-                    Keyboard.Type(itemCode);
-                    Keyboard.Press(VirtualKeyShort.RETURN);
-                }
-            }
-
-            if (popup != null)
-            {
-                WaitForClosed(() => popup);
             }
         }
 

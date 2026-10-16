@@ -14,14 +14,179 @@ namespace HRMITestFlaUI.Module.Organization
 {
     public class OrganizationUnitInfoUC
     {
-        // -------------------------------------------------------------
-        // 1. ค่าที่อาจต้องปรับเมื่อ Automation ID หรือหน้าจอ OrganizationUnitInfoUC เปลี่ยน
-        // -------------------------------------------------------------
-        private const int TimeoutMs = 6000;
+        // =========================================================================================
+        // หมวดที่ 1: ข้อมูลการทดสอบครบทั้ง 5 ขั้น (Test Data: Step 1 - Step 5)
+        // =========================================================================================
+
+        private sealed record OrgUnitAddItem(
+            bool ClickNew,
+            string Code,
+            string Name,
+            string NameEng,
+            string OrgUnitType,
+            string ParentOrgUnit,
+            string Description,
+            string Save);
+
+        private sealed record ValidationItem(
+            string TestCaseId,
+            int Progress,
+            string ProgressMsg,
+            Action<OrganizationUnitInfoUC, AutomationElement, Window> Action,
+            string[] ExpectedMessages);
+
+        private sealed record OrgUnitEditItem(
+            string TestCaseId,
+            string OldCode,
+            string NewCode,
+            string NewName,
+            string SaveButtonName);
+
+        private sealed record DeleteItem(
+            string TargetCode,
+            string ConfirmButton,
+            bool ExpectDeleted);
+
+        // [ขั้นที่ 1] ข้อมูลทดสอบการสร้างใหม่ (Add / Navigate)
+        private static readonly OrgUnitAddItem[] Step1_AddCases =
+        {
+            new(true,  "ORG001", "สำนักงานใหญ่",           "Head Office",            "001", "",    "หน่วยงานหลัก",          "SaveClose"),
+            new(true,  "ORG002", "ฝ่ายทรัพยากรบุคคล",       "Human Resources",        "002", "001", "ดูแลบุคลากร",            "SaveNew"),
+            new(false, "ORG003", "ฝ่ายบัญชีและการเงิน",     "Accounting & Finance",   "001", "",    "ดูแลบัญชีและการเงิน",      "SaveNew"),
+            new(false, "ORG004", "ฝ่ายเทคโนโลยีสารสนเทศ",   "Information Technology", "002", "001", "ดูแลระบบ IT",           "SaveNew"),
+            new(false, "ORG005", "ฝ่ายจัดซื้อ",             "Procurement",            "001", "",    "จัดซื้อวัสดุและอุปกรณ์",  "SaveAndClose")
+        };
+
+        // [ขั้นที่ 2] ข้อมูลทดสอบแจ้งเตือนตอนสร้างใหม่ (New Validation)
+        private static readonly ValidationItem[] Step2_NewValidationCases =
+        {
+            new("TestCase01_MissingCode", 26, "Validating: Missing Code...",
+                (page, ctx, form) =>
+                {
+                    page.ClearField(ctx, IdTxtOrgUnitCode);
+                    page.FillTextBox(ctx, IdTxtOrgUnitName, "สำนักงานใหญ่");
+                    page.SelectLookupValue(ctx, IdBtnOrgUnitType, "001", "ประเภทหน่วยงาน");
+                    page.SafeClick(form, "Save");
+                },
+                new[] { "รหัสหน่วยงาน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล" }),
+
+            new("TestCase02_MissingName", 29, "Validating: Missing Name...",
+                (page, ctx, form) =>
+                {
+                    page.FillTextBox(ctx, IdTxtOrgUnitCode, "ORG001");
+                    page.ClearField(ctx, IdTxtOrgUnitName);
+                    page.SelectLookupValue(ctx, IdBtnOrgUnitType, "002", "ประเภทหน่วยงาน");
+                    page.SelectLookupValue(ctx, IdBtnParentOrgUnit, "001", "หน่วยงานหลัก");
+                    page.SafeClick(form, "Save and New");
+                },
+                new[] { "ชื่อหน่วยงาน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล" }),
+
+            new("TestCase03_MissingAllFields", 32, "Validating: Missing All Fields...",
+                (page, ctx, form) =>
+                {
+                    page.ClearField(ctx, IdTxtOrgUnitCode);
+                    page.ClearField(ctx, IdTxtOrgUnitName);
+                    page.ClearLookupValue(ctx, IdBtnOrgUnitType);
+                    page.SafeClick(form, "Save and New");
+                },
+                new[] {
+                    "รหัสหน่วยงาน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล",
+                    "ชื่อหน่วยงาน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล",
+                    "ประเภทหน่วยงาน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล"
+                }),
+
+            new("TestCase04_MissingParentOrg", 35, "Validating: Missing Parent Org...",
+                (page, ctx, form) =>
+                {
+                    page.FillTextBox(ctx, IdTxtOrgUnitCode, "ORG006");
+                    page.FillTextBox(ctx, IdTxtOrgUnitName, "สำนักงาน");
+                    page.SelectLookupValue(ctx, IdBtnOrgUnitType, "002", "ประเภทหน่วยงาน");
+                    page.ClearLookupValue(ctx, IdBtnParentOrgUnit);
+                    page.SafeClick(form, "Save and New");
+                },
+                new[] { "หน่วยงานหลัก ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล" }),
+
+            new("TestCase05_DuplicateCodeAndName", 38, "Validating: Duplicate Code and Name...",
+                (page, ctx, form) =>
+                {
+                    page.FillTextBox(ctx, IdTxtOrgUnitCode, "ORG005");
+                    page.FillTextBox(ctx, IdTxtOrgUnitName, "ฝ่ายจัดซื้อ");
+                    page.SelectLookupValue(ctx, IdBtnOrgUnitType, "001", "ประเภทหน่วยงาน");
+                    page.SafeClick(form, "Save and New");
+                },
+                new[] { "ห้ามซ้ำ กรุณาป้อนข้อมูล" })
+        };
+
+        // [ขั้นที่ 3] ข้อมูลทดสอบการแก้ไขข้อมูล (Edit Records)
+        private static readonly OrgUnitEditItem[] Step3_EditCases =
+        {
+            new("TestCase03_EditData_ORG001_to_RP001", "ORG001", "RP001", "สำนักงานใหญ่มาก", "Save"),
+            new("TestCase03_EditData_ORG002_to_RP002", "ORG002", "RP002", "ฝ่ายทรัพยากรบุคคลพิเศษ", "Save and Close")
+        };
+
+        // [ขั้นที่ 4] ข้อมูลทดสอบแจ้งเตือนตอนแก้ไขข้อมูล (Edit Validation)
+        private static readonly ValidationItem[] Step4_EditValidationCases =
+        {
+            new("TestCase04_EditValidation_MissingCode", 64, "Validating Edit: Missing Code...",
+                (page, ctx, form) =>
+                {
+                    form.Focus();
+                    page.ClearField(ctx, IdTxtOrgUnitCode);
+                    page.FillTextBox(ctx, IdTxtOrgUnitName, "สำนักงานย่อย");
+                    page.SafeClick(form, "Save");
+                },
+                new[] { "รหัสหน่วยงาน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล" }),
+
+            new("TestCase04_EditValidation_MissingName", 68, "Validating Edit: Missing Name...",
+                (page, ctx, form) =>
+                {
+                    form.Focus();
+                    page.FillTextBox(ctx, IdTxtOrgUnitCode, "ORG003");
+                    page.ClearField(ctx, IdTxtOrgUnitName);
+                    page.SafeClick(form, "Save");
+                },
+                new[] { "ชื่อหน่วยงาน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล" }),
+
+            new("TestCase04_EditValidation_MissingBoth", 72, "Validating Edit: Missing Both...",
+                (page, ctx, form) =>
+                {
+                    form.Focus();
+                    page.ClearField(ctx, IdTxtOrgUnitCode);
+                    page.ClearField(ctx, IdTxtOrgUnitName);
+                    page.SafeClick(form, "Save");
+                },
+                new[] {
+                    "รหัสหน่วยงาน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล",
+                    "ชื่อหน่วยงาน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล"
+                }),
+
+            new("TestCase04_EditValidation_Duplicate", 76, "Validating Edit: Duplicate...",
+                (page, ctx, form) =>
+                {
+                    form.Focus();
+                    page.FillTextBox(ctx, IdTxtOrgUnitCode, "ORG003");
+                    page.FillTextBox(ctx, IdTxtOrgUnitName, "ฝ่ายบัญชีและการเงิน");
+                    page.SafeClick(form, "Save");
+                },
+                new[] { "ห้ามซ้ำ กรุณาป้อนข้อมูล" })
+        };
+
+        // [ขั้นที่ 5] ข้อมูลทดสอบการลบข้อมูล (Delete Records)
+        private static readonly DeleteItem[] Step5_DeleteCases =
+        {
+            new("RP002", "Yes", true),
+            new("RP001", "No", false)
+        };
+
+
+        // =========================================================================================
+        // หมวดที่ 2: ส่วนที่ขึ้นกับหน้าจอนั้นๆ (Screen-Specific Implementation)
+        // =========================================================================================
+
         private const string FormId = "OrganizationUnitInfoUC";
         private const string LogPageKey = "OrganizationUnitInfoUC";
         private const string GeneralTabId = "devTabPgGeneral";
-        private const string MenuName = "บันทึกข้อมูลหน่วยงาน";
+        private const string MenuSearchKeyword = "บันทึกข้อมูลหน่วยงาน";
 
         private const string IdTxtOrgUnitCode = "devTxtOrgUnitCode";
         private const string IdTxtOrgUnitName = "devTxtOrgUnitName";
@@ -29,351 +194,216 @@ namespace HRMITestFlaUI.Module.Organization
         private const string IdBtnOrgUnitType = "devBtnOrgUnitType";
         private const string IdBtnParentOrgUnit = "devBtnParentOrgUnit";
         private const string IdMemoDescription = "devMemoDescription";
-        private const string FirstObjectID = IdTxtOrgUnitCode;
 
-        private const string LabelOrgUnitType = "ประเภทหน่วยงาน";
-        private const string LabelParentOrgUnit = "หน่วยงานหลัก";
-
-        // ข้อความแจ้งเตือนที่ใช้ตรวจใน Task Result
-        private const string MsgCodeEmpty = "รหัสหน่วยงาน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล";
-        private const string MsgNameEmpty = "ชื่อหน่วยงาน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล";
-        private const string MsgTypeEmpty = "ประเภทหน่วยงาน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล";
-        private const string MsgParentEmpty = "หน่วยงานหลัก ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล";
-        private const string MsgDup = "ห้ามซ้ำ กรุณาป้อนข้อมูล";
-
-        // -------------------------------------------------------------
-        // 2. ค่าภายในและข้อมูลทดสอบที่ไม่ต้องปรับตามหน้าจอ
-        // -------------------------------------------------------------
-        private readonly AutomationElement _mainWindow;
-        private readonly UIA3Automation _automation;
-
-        // ตัวนับผลเฉพาะ Instance นี้ ใช้สรุปเมื่อจบการทดสอบ Delete
-        private int _totalSuccess = 0, _totalFail = 0;
-
-        private sealed record EditCase(
-            string Name,
-            string OldCode,
-            string NewCode,
-            string NewName,
-            string SaveBtn,
-            bool NeedsManualClose);
-
-        private static readonly EditCase[] Edits =
-        {
-            new("TestCase03_EditData_ORG001_to_RP001", "ORG001", "RP001", "สำนักงานใหญ่มาก", "Save", true),
-            new("TestCase03_EditData_ORG002_to_RP002", "ORG002", "RP002", "ฝ่ายทรัพยากรบุคคลพิเศษ", "Save and Close", false)
-        };
-
-        public OrganizationUnitInfoUC(AutomationElement mainWindow, UIA3Automation automation)
-        {
-            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
-            _automation = automation ?? throw new ArgumentNullException(nameof(automation));
-        }
-
-        // -------------------------------------------------------------
-        // 1. ทดสอบการ New โดยเพิ่มข้อมูลหน่วยงาน
-        //    สัดส่วน Progress: 0 -> 20
-        // -------------------------------------------------------------
         public void NavigateToOrganizationUnitInfoUC()
         {
-            // SaveBtn กำหนดพฤติกรรมหลังบันทึก ส่วน NeedsManualClose ระบุว่าต้องปิดฟอร์มเองหรือไม่
-            var DataList = new[]
-            {
-                new { Code = "ORG001", Name = "สำนักงานใหญ่", NameEng = "Head Office", OrgUnitType = "001", ParentOrgUnit = "", Description = "หน่วยงานหลัก",
-                      SaveBtn = "Save", NeedsManualClose = true },
-                new { Code = "ORG002", Name = "ฝ่ายทรัพยากรบุคคล", NameEng = "Human Resources", OrgUnitType = "002", ParentOrgUnit = "001", Description = "ดูแลบุคลากร",
-                      SaveBtn = "Save and New", NeedsManualClose = false },
-                new { Code = "ORG003", Name = "ฝ่ายบัญชีและการเงิน", NameEng = "Accounting & Finance", OrgUnitType = "001", ParentOrgUnit = "", Description = "ดูแลบัญชีและการเงิน",
-                      SaveBtn = "Save and New", NeedsManualClose = false },
-                new { Code = "ORG004", Name = "ฝ่ายเทคโนโลยีสารสนเทศ", NameEng = "Information Technology", OrgUnitType = "002", ParentOrgUnit = "001", Description = "ดูแลระบบ IT",
-                      SaveBtn = "Save and New", NeedsManualClose = false },
-                new { Code = "ORG005", Name = "ฝ่ายจัดซื้อ", NameEng = "Procurement", OrgUnitType = "001", ParentOrgUnit = "", Description = "จัดซื้อวัสดุและอุปกรณ์",
-                      SaveBtn = "Save and Close", NeedsManualClose = false }
-            };
-
             const string stageName = "TestCase00_AddOrgUnitData";
             TestLogger.LogInfo(LogPageKey, "เริ่มทดสอบหน้าจอบันทึกข้อมูลหน่วยงาน");
             TestProgressHelper.Report(2, "Opening Organization -> Org Unit Menu via Search...");
 
-            // เปิดเมนูด้วยช่องค้นหาของโปรแกรม หากเปิดไม่สำเร็จให้จบขั้นตอนนี้
-            if (!TryOpenMenu(stageName, MenuName)) return;
+            if (!TryOpenOrgUnitMenu(stageName)) return;
 
             Window? form = null;
-            for (int i = 0; i < DataList.Length; i++)
+            for (int i = 0; i < Step1_AddCases.Length; i++)
             {
-                var a = DataList[i];
-                string testName = $"{stageName}_{a.Code}";
-                TestProgressHelper.Report(4 + (i * 16 / DataList.Length), $"Adding {MenuName} ({i + 1}/{DataList.Length}): {a.Code} - {a.Name}...");
+                var data = Step1_AddCases[i];
+                string testName = $"{stageName}_{data.Code}";
+                TestProgressHelper.Report(4 + (i * 3), $"Adding Org Unit ({i + 1}/{Step1_AddCases.Length}): {data.Code} - {data.Name}...");
 
                 try
                 {
-                    // ใช้ฟอร์มเดิมต่อเมื่อยังเปิดอยู่ เช่น หลัง Save and New
-                    form ??= GetOrOpenForm();
-                    var tab = GetGeneralTab(form);
-                    FillData(tab, a.Code, a.Name, a.NameEng, a.OrgUnitType, a.ParentOrgUnit, a.Description);
-
-                    // ถ้าพบข้อมูลซ้ำจะบันทึกผลไม่ผ่านและข้ามไปข้อมูลถัดไป
-                    if (!TrySaveAndHandleDuplicate(form, testName, a.Code, a.SaveBtn))
+                    if (data.ClickNew || form == null || !form.IsAvailable)
                     {
-                        form = null;
-                        continue;
+                        form = OpenForm();
                     }
 
-                    if (a.SaveBtn == "Save and New")
+                    FillGeneralTab(form, data.Code, data.Name, data.NameEng, data.OrgUnitType, data.ParentOrgUnit, data.Description);
+
+                    switch (data.Save)
                     {
-                        // ปุ่ม Save and New ควรล้างฟอร์มเพื่อให้กรอกรายการถัดไป
-                        WaitUntil(() => string.IsNullOrEmpty(tab.FindFirstDescendant(cf => cf.ByAutomationId(FirstObjectID))?.AsTextBox().Text), 3000);
-                        LogSuccess(testName, $"'{a.Code}' บันทึกสำเร็จ (Save and New)");
-                    }
-                    else
-                    {
-                        // กรณีบันทึกแล้วไม่ได้ปิดฟอร์มอัตโนมัติ ให้ปิดก่อนตรวจข้อมูลในตาราง
-                        if (a.NeedsManualClose) SafeCloseForm(form);
-                        WaitForClosed(() => FindOpenForm());
-                        form = null;
-                        LogGridResult(testName, a.Code);
+                        case "SaveClose":
+                            if (!TrySaveAndHandleDuplicate(form, testName, data.Code, "Save"))
+                            {
+                                form = null;
+                                continue;
+                            }
+                            SafeCloseForm(form);
+                            form = null;
+                            LogSuccess(testName, $"'{data.Code}' บันทึก SaveClose สำเร็จ");
+                            break;
+
+                        case "SaveNew":
+                            if (!TrySaveAndHandleDuplicate(form, testName, data.Code, "Save and New"))
+                            {
+                                form = null;
+                                continue;
+                            }
+                            var codeInput = form.FindFirstDescendant(cf => cf.ByAutomationId(IdTxtOrgUnitCode))?.AsTextBox();
+                            WaitUntil(() => string.IsNullOrEmpty(codeInput?.Text), 3000);
+                            LogSuccess(testName, $"'{data.Code}' บันทึก Save and New สำเร็จ");
+                            break;
+
+                        case "SaveAndClose":
+                            string saveBtn = SafeClick(form, "Save and Close") ? "Save and Close" : "Save";
+                            if (saveBtn == "Save")
+                            {
+                                if (!TrySaveAndHandleDuplicate(form, testName, data.Code, "Save"))
+                                {
+                                    form = null;
+                                    continue;
+                                }
+                                SafeCloseForm(form);
+                            }
+                            else
+                            {
+                                if (!CheckDuplicateWarningAfterSave(form, testName, data.Code))
+                                {
+                                    form = null;
+                                    continue;
+                                }
+                                WaitForClosed(() => FindOpenForm());
+                            }
+                            form = null;
+                            LogSuccess(testName, $"'{data.Code}' บันทึก SaveAndClose สำเร็จ");
+                            break;
                     }
                 }
                 catch (Exception ex)
                 {
-                    // ความผิดพลาดของรายการหนึ่งไม่หยุดการสร้างรายการอื่น
-                    LogFailure(testName, $"'{a.Code}' เพิ่มไม่สำเร็จ: {ex.Message}");
+                    LogFailure(testName, $"'{data.Code}' เพิ่มไม่สำเร็จ: {ex.Message}");
                     if (form != null && form.IsAvailable) SafeCloseForm(form);
                     form = null;
                 }
             }
 
-            // เก็บกวาด Dialog ที่ค้าง และตรวจรายการที่บันทึกด้วย Save and New ว่าอยู่ในตารางหลัก
             EnsureNoStrayModal($"{stageName}_Cleanup");
             RefreshGrid();
-            foreach (var a in DataList.Where(x => x.SaveBtn == "Save and New"))
-                LogGridResult($"{stageName}_Verify_{a.Code}", a.Code);
+
+            foreach (var data in Step1_AddCases)
+            {
+                LogGridResult($"{stageName}_Verify_{data.Code}", data.Code);
+            }
         }
 
-        // -------------------------------------------------------------
-        // 2. ทดสอบ แจ้งเตือนต่างๆ เมื่อ New
-        //    สัดส่วน Progress: 20 -> 40
-        // -------------------------------------------------------------
         public void RunAllValidationTests()
         {
-            const string stage = "TestCase01-05_Validation";
+            const string stageName = "TestCase01-06_ValidationNew";
             TestProgressHelper.Report(22, "Opening Org Unit Form for Validation Tests...");
-            EnsureNoStrayModal($"{stage}_PreCheck");
+            EnsureNoStrayModal($"{stageName}_PreCheck");
 
             Window form;
-            // หากเปิดฟอร์มไม่ได้ ไม่มีเงื่อนไขให้ทดสอบต่อ จึงบันทึกความล้มเหลวแล้วคืนค่า
             try { form = OpenForm(); }
-            catch (Exception ex) { LogFailure(stage, $"เปิดฟอร์มไม่สำเร็จ: {ex.Message}"); return; }
+            catch (Exception ex) { LogFailure(stageName, $"เปิดฟอร์มไม่สำเร็จ: {ex.Message}"); return; }
 
-            var tab = GetGeneralTab(form);
+            var context = GetGeneralTab(form);
 
-            // ข้อที่ 1: ไม่กรอกรหัส, กรอกชื่อ, เลือกประเภท -> Save
-            RunStep("TestCase01_MissingCode",
-                () =>
+            foreach (var item in Step2_NewValidationCases)
+            {
+                RunStep(item.TestCaseId, () =>
                 {
-                    SelectLookupValue(tab, IdBtnOrgUnitType, "001", LabelOrgUnitType);
-                    FillSaveAssertAndOpen(tab, form, "", "สำนักงานใหญ่", "Save", "TestCase01_MissingCode", MsgCodeEmpty);
-                },
-                25, "Validating: Missing Code...");
+                    item.Action(this, context, form);
+                    AssertTaskResult(form, item.ExpectedMessages, item.TestCaseId);
+                    AssertFormOpen(form, item.TestCaseId);
+                }, item.Progress, item.ProgressMsg);
+            }
 
-            // ข้อที่ 2: กรอกรหัส ORG001, ลบชื่อ, เลือกประเภทและหน่วยงานหลัก -> Save and New
-            RunStep("TestCase02_MissingName",
-                () =>
-                {
-                    SelectLookupValue(tab, IdBtnOrgUnitType, "002", LabelOrgUnitType);
-                    SelectLookupValue(tab, IdBtnParentOrgUnit, "001", LabelParentOrgUnit);
-                    FillSaveAssertAndOpen(tab, form, "ORG001", "", "Save and New", "TestCase02_MissingName", MsgNameEmpty);
-                },
-                28, "Validating: Missing Name...");
-
-            // ข้อที่ 3: ลบรหัส, ลบชื่อ, ลบประเภท -> Save and New
-            RunStep("TestCase03_MissingAllFields",
-                () =>
-                {
-                    ClearLookupValue(tab, IdBtnOrgUnitType);
-                    FillSaveAssertAndOpen(tab, form, "", "", "Save and New", "TestCase03_MissingAllFields", MsgCodeEmpty, MsgNameEmpty, MsgTypeEmpty);
-                },
-                31, "Validating: Missing All Fields...");
-
-            // ข้อที่ 4: รหัส ORG006, ชื่อ, ประเภท แต่ลบหน่วยงานหลัก -> Save and New
-            RunStep("TestCase04_MissingParentOrg",
-                () =>
-                {
-                    SelectLookupValue(tab, IdBtnOrgUnitType, "002", LabelOrgUnitType);
-                    ClearLookupValue(tab, IdBtnParentOrgUnit);
-                    FillSaveAssertAndOpen(tab, form, "ORG006", "สำนักงาน", "Save and New", "TestCase04_MissingParentOrg", MsgParentEmpty);
-                },
-                34, "Validating: Missing Parent Org...");
-
-            // ข้อที่ 5: รหัสและชื่อซ้ำ ORG005 -> Save and New
-            const string dupName = "TestCase05_DuplicateCodeAndName";
-            RunStep(dupName,
-                () =>
-                {
-                    SelectLookupValue(tab, IdBtnOrgUnitType, "001", LabelOrgUnitType);
-                    FillSaveAssertAndOpen(tab, form, "ORG005", "ฝ่ายจัดซื้อ", "Save and New", dupName, MsgDup);
-                },
-                37, "Validating: Duplicate Code and Name...");
-
-            // Sequence ปิดหน้าจอ Yes/Cancel/No
-            RunStep($"{dupName}_CloseSequence",
-                () => RunCloseDialogSequence(form, dupName, MsgDup),
+            RunStep("TestCase05_DuplicateCodeAndName_CloseSequence", () =>
+                RunCloseDialogSequence(form, "TestCase05_DuplicateCodeAndName", "ห้ามซ้ำ กรุณาป้อนข้อมูล"),
                 40, "Validating: Close Dialog Sequence...");
         }
 
-        // -------------------------------------------------------------
-        // 3. ทดสอบการแก้ไขข้อมูล (Edit Record Tests)
-        //    สัดส่วน Progress ของเมธอดนี้: 40 -> 55
-        // -------------------------------------------------------------
         public void RunEditTests()
         {
+            const string stageName = "TestCase03_EditData";
             TestProgressHelper.Report(42, "Starting Edit Operations...");
-            EnsureNoStrayModal("TestCase03_EditData_PreCheck");
+            EnsureNoStrayModal($"{stageName}_PreCheck");
 
-            for (int i = 0; i < Edits.Length; i++)
+            foreach (var edit in Step3_EditCases)
             {
-                var e = Edits[i];
-                try
-                {
-                    // เปิดรายการเดิม แก้ข้อมูล และบันทึกด้วยปุ่มที่กำหนดสำหรับแต่ละเคส
-                    var form = ClickRowAndOpenEdit(e.OldCode);
-                    var tab = GetGeneralTab(form);
-                    SetText(tab, IdTxtOrgUnitCode, e.NewCode);
-                    SetText(tab, IdTxtOrgUnitName, e.NewName);
-
-                    if (!TrySaveAndHandleDuplicate(form, e.Name, e.NewCode, e.SaveBtn)) continue;
-                    if (e.NeedsManualClose) SafeCloseForm(form);
-
-                    WaitForClosed(() => FindOpenForm());
-                    RefreshGrid();
-
-                    if (VerifyRecordInGrid(e.NewCode, refresh: false))
-                        LogSuccess(e.Name, $"แก้ไข '{e.OldCode}' เป็น '{e.NewCode}' สำเร็จ (พบในตารางหลัก)");
-                    else
-                        LogFailure(e.Name, $"แก้ไข '{e.OldCode}' แล้ว แต่ไม่พบ '{e.NewCode}' ในตารางหลัก");
-                }
-                catch (Exception ex) { LogFailure(e.Name, $"แก้ไข '{e.OldCode}' ไม่สำเร็จ: {ex.Message}"); }
-                finally
-                {
-                    // รายงานความคืบหน้าแม้เคสปัจจุบันจะเกิดข้อผิดพลาด
-                    TestProgressHelper.Report(42 + ((i + 1) * 13 / Edits.Length), $"Editing Org Unit Record ({i + 1}/{Edits.Length})...");
-                }
+                PerformEdit(edit.TestCaseId, edit.OldCode, edit.NewCode, edit.NewName, edit.SaveButtonName);
             }
         }
 
-        // -------------------------------------------------------------
-        // 4. ทดสอบ Validation ตอนแก้ไขข้อมูล (Edit Validation Tests)
-        //    สัดส่วน Progress ของเมธอดนี้: 55 -> 80
-        // -------------------------------------------------------------
         public void RunEditValidationTests()
         {
-            const string baseName = "TestCase04_EditValidation";
+            const string baseTestName = "TestCase04_EditValidation";
             TestProgressHelper.Report(58, "Opening Edit Form for Validation Tests...");
-            EnsureNoStrayModal($"{baseName}_PreCheck");
+            EnsureNoStrayModal($"{baseTestName}_PreCheck");
 
             Window form;
-            try { form = ClickRowAndOpenEdit(Edits[0].NewCode); }
-            catch (Exception ex) { LogFailure(baseName, $"เปิดฟอร์ม Edit ไม่สำเร็จ: {ex.Message}"); return; }
+            try { form = ClickRowAndOpenEdit("RP001"); }
+            catch (Exception ex) { LogFailure(baseTestName, $"เปิดฟอร์ม Edit ไม่สำเร็จ: {ex.Message}"); return; }
 
-            var tab = GetGeneralTab(form);
+            var context = GetGeneralTab(form);
 
-            RunStep($"{baseName}_MissingCode",
-                () => FillSaveAssert(tab, form, "", "สำนักงานย่อย", "Save", $"{baseName}_MissingCode", MsgCodeEmpty),
-                64, "Validating Edit: Missing Code...");
+            foreach (var item in Step4_EditValidationCases)
+            {
+                RunStep(item.TestCaseId, () =>
+                {
+                    item.Action(this, context, form);
+                    AssertTaskResult(form, item.ExpectedMessages, item.TestCaseId);
+                }, item.Progress, item.ProgressMsg);
+            }
 
-            RunStep($"{baseName}_MissingName",
-                () => FillSaveAssert(tab, form, "ORG003", "", "Save", $"{baseName}_MissingName", MsgNameEmpty),
-                68, "Validating Edit: Missing Name...");
-
-            RunStep($"{baseName}_MissingBoth",
-                () => FillSaveAssert(tab, form, "", "", "Save", $"{baseName}_MissingBoth", MsgCodeEmpty, MsgNameEmpty),
-                72, "Validating Edit: Missing Both...");
-
-            const string dupSub = $"{baseName}_Duplicate";
-            RunStep(dupSub,
-                () => FillSaveAssert(tab, form, "ORG003", "ฝ่ายบัญชีและการเงิน", "Save", dupSub, MsgDup),
-                76, "Validating Edit: Duplicate...");
-
-            RunStep($"{dupSub}_CloseSequence",
-                () => RunCloseDialogSequence(form, dupSub, MsgDup),
+            RunStep("TestCase04_EditValidation_Duplicate_CloseSequence", () =>
+                RunCloseDialogSequence(form, "TestCase04_EditValidation_Duplicate", "ห้ามซ้ำ กรุณาป้อนข้อมูล"),
                 80, "Validating Edit: Close Dialog Sequence...");
         }
 
-        // -------------------------------------------------------------
-        // 5. ทดสอบการลบข้อมูล (Delete Record Tests)
-        //    สัดส่วน Progress ของเมธอดนี้: 80 -> 100
-        // -------------------------------------------------------------
         public void RunDeleteTests()
         {
-            const string baseName = "TestCase05_DeleteData";
+            const string baseTestName = "TestCase05_DeleteData";
             TestProgressHelper.Report(84, "Starting Delete Tests...");
 
-            // เคสที่ 1: คลิกรหัส RP002 -> Delete -> Yes -> ตรวจสอบว่าถูกลบ
-            RunDeleteCase(baseName, Edits[1].NewCode, "Yes", expectDeleted: true);
-            TestProgressHelper.Report(92, $"Delete Test: {Edits[1].NewCode} (confirmed delete)...");
+            foreach (var item in Step5_DeleteCases)
+            {
+                RunDeleteCase(baseTestName, item.TargetCode, item.ConfirmButton, item.ExpectDeleted);
+            }
 
-            // เคสที่ 2: คลิกรหัส RP001 -> Delete -> No -> ตรวจสอบว่าข้อมูลยังอยู่
-            RunDeleteCase(baseName, Edits[0].NewCode, "No", expectDeleted: false);
-            TestProgressHelper.Report(100, $"Delete Test: {Edits[0].NewCode} (cancelled delete)...");
-
-            LogSuccess(baseName, "ทดสอบ Delete ครบทุกเคส");
+            LogSuccess(baseTestName, "ทดสอบ Delete ครบทุกเคสแล้ว");
             TestLogger.LogInfo(LogPageKey, $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
         }
 
-        // -------------------------------------------------------------
-        // 1. Helper ที่เกี่ยวข้องกับหน้าจอ OrganizationUnitInfoUC
-        // -------------------------------------------------------------
-        private void RunDeleteCase(string baseName, string code, string btn, bool expectDeleted)
+        // --- Custom Mapping & Control Logic ประจำหน้าจอ ---
+        private AutomationElement GetGeneralTab(Window form) =>
+            form.FindFirstDescendant(cf => cf.ByAutomationId(GeneralTabId)) ?? form;
+
+        private void FillGeneralTab(Window form, string code, string name, string nameEng, string orgUnitType = "", string parentOrgUnit = "", string description = "")
         {
-            string testName = $"{baseName}_{code}_{btn}";
-            try
-            {
-                // รีเฟรชตารางก่อนเลือกแถว เพื่อใช้สถานะข้อมูลล่าสุด
-                RefreshGrid();
+            SwitchToTab(form, GeneralTabId, "General");
+            var ctx = form.FindFirstDescendant(cf => cf.ByAutomationId(GeneralTabId)) ?? form;
 
-                var elRow = Retry(() => FindGridElement(code), 4000)
-                            ?? throw new Exception($"หาแถวรหัส '{code}' ในตารางไม่เจอ");
-                elRow.Click();
+            if (!string.IsNullOrEmpty(code)) FillTextBox(ctx, IdTxtOrgUnitCode, code);
+            if (!string.IsNullOrEmpty(name)) FillTextBox(ctx, IdTxtOrgUnitName, name);
+            if (!string.IsNullOrEmpty(nameEng)) FillTextBox(ctx, IdTxtOrgUnitNameEng, nameEng);
 
-                var delBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName("Delete")), 3000)
-                             ?? throw new Exception("หาปุ่ม Delete ไม่เจอ");
-                delBtn.Click();
+            if (!string.IsNullOrEmpty(orgUnitType))
+                SelectLookupValue(ctx, IdBtnOrgUnitType, orgUnitType, "ประเภทหน่วยงาน");
 
-                var dlg = Retry(() => _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault()
-                                      ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByName("คำเตือน"))?.AsWindow(), 4000)
-                          ?? throw new Exception("กด Delete แล้วไม่พบ Pop-up ยืนยัน");
+            if (!string.IsNullOrEmpty(parentOrgUnit))
+                SelectLookupValue(ctx, IdBtnParentOrgUnit, parentOrgUnit, "หน่วยงานหลัก");
 
-                ClickDialogButton(dlg, btn);
-                WaitForClosed(() => dlg);
-
-                // ตรวจสถานะจริงจากตารางหลังตอบ Yes/No แทนการอาศัยเพียงการปิด Dialog
-                RefreshGrid();
-                bool exists = VerifyRecordInGrid(code, timeoutMs: 3000, refresh: false);
-
-                if (expectDeleted && exists) throw new Exception($"'{code}' ยังค้างอยู่หลังลบ");
-                if (!expectDeleted && !exists) throw new Exception($"'{code}' หายไปทั้งที่ไม่ควรถูกลบ");
-
-                LogSuccess(testName, expectDeleted ? $"'{code}' ถูกลบสำเร็จ" : $"'{code}' ข้อมูลยังไม่ถูกลบ");
-            }
-            catch (Exception ex) { LogFailure(testName, $"ลบรหัส '{code}' ไม่สำเร็จ: {ex.Message}"); }
+            if (!string.IsNullOrEmpty(description)) FillTextBox(ctx, IdMemoDescription, description);
         }
 
-        private bool TryOpenMenu(string stage, string searchKeyword)
+        private bool TryOpenOrgUnitMenu(string stage)
         {
             try
             {
-                // หา Search ด้วย AutomationId ก่อน แล้วจึงใช้ ControlType.Edit เป็นทางเลือก
                 var searchBox = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("baritemSearch"))
                                             ?? _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit)), 4000)
                               ?? throw new Exception("ไม่พบช่องค้นหา baritemSearch");
 
-                WaitUntil(() => { try { searchBox.Focus(); return true; } catch { return false; } }, 1000);
+                searchBox.Focus();
+                Thread.Sleep(200);
 
-                // ใช้ Value Pattern หากรองรับ; หากไม่รองรับให้พิมพ์ผ่าน Keyboard
+                string searchKeyword = MenuSearchKeyword;
                 if (searchBox.Patterns.Value.IsSupported)
                     searchBox.Patterns.Value.Pattern.SetValue(searchKeyword);
                 else
                     Keyboard.Type(searchKeyword);
+
+                Thread.Sleep(300);
 
                 var searchBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("barChkSearch"))
                                             ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Find")), 4000)
@@ -381,7 +411,6 @@ namespace HRMITestFlaUI.Module.Organization
 
                 searchBtn.Click();
 
-                // เลือกผลลัพธ์เมนูจากข้อความค้นหา หรือชื่อแถวที่ UI แสดงเป็น fallback
                 var menuResult = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName(searchKeyword))
                                                ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 1"))
                                                ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 2")), 4000)
@@ -389,10 +418,8 @@ namespace HRMITestFlaUI.Module.Organization
 
                 menuResult.Focus();
                 menuResult.Click();
-
                 Keyboard.Press(VirtualKeyShort.ENTER);
 
-                // เช็คโดยตรงว่าหน้าจอแสดงปุ่ม New พร้อมใช้งาน
                 return WaitUntil(() =>
                 {
                     var newBtn = _mainWindow.FindFirstDescendant(cf => cf.ByName("New"));
@@ -406,79 +433,409 @@ namespace HRMITestFlaUI.Module.Organization
             }
         }
 
-        // คืนฟอร์มที่เปิดอยู่แล้วถ้าพบ มิฉะนั้นกด New เพื่อสร้างฟอร์มใหม่
-        private Window GetOrOpenForm() => Retry(FindOpenForm, 1500) ?? OpenForm();
-
         private Window OpenForm()
         {
-            // เปิดฟอร์มจากปุ่ม New และรอจนพบฟอร์มพร้อมช่องรหัส
-            if (!SafeClick(_mainWindow, "New", 3000)) throw new Exception("หาปุ่ม New ไม่เจอ");
-
-            var form = Retry(FindOpenForm, 8000) ?? throw new Exception("หาฟอร์มไม่เจอ");
-            WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId(FirstObjectID)) != null, 4000);
-            return form;
+            SafeClickMainWindow("New");
+            return GetOrgUnitFormWindow();
         }
 
-        // ค้นหาฟอร์มแบบ Modal ของหน้าต่างหลักก่อน แล้วค่อยค้นจาก Desktop ด้วย FormId
         private Window? FindOpenForm() =>
             _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault() ??
             _automation.GetDesktop().FindFirstChild(cf => cf.ByAutomationId(FormId))?.AsWindow();
 
-        // ใช้แท็บ General เมื่อพบ; คืนฟอร์มทั้งหน้าเป็น fallback เผื่อ AutomationId ของแท็บไม่มี
-        private AutomationElement GetGeneralTab(Window form) =>
-            Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(GeneralTabId)), 3000) ?? form;
-
-        /* Method สำหรับกรอกข้อมูลช่องต่างๆ ของหน่วยงาน (Code, Name, NameEng, Type, Parent, Description) */
-        private void FillData(AutomationElement tab, string code, string name, string nameEng, string orgUnitType, string parentOrgUnit, string description)
+        private Window GetOrgUnitFormWindow()
         {
-            SetText(tab, IdTxtOrgUnitCode, code);
-            SetText(tab, IdTxtOrgUnitName, name);
-            SetText(tab, IdTxtOrgUnitNameEng, nameEng);
-
-            if (!string.IsNullOrEmpty(orgUnitType))
-                SelectLookupValue(tab, IdBtnOrgUnitType, orgUnitType, LabelOrgUnitType);
-
-            if (!string.IsNullOrEmpty(parentOrgUnit))
-                SelectLookupValue(tab, IdBtnParentOrgUnit, parentOrgUnit, LabelParentOrgUnit);
-
-            SetText(tab, IdMemoDescription, description);
+            var form = Retry(FindOpenForm, 8000) ?? throw new Exception("หาฟอร์ม OrganizationUnitInfoUC ไม่เจอ");
+            WaitUntil(() =>
+            {
+                var txt = form.FindFirstDescendant(cf => cf.ByAutomationId(IdTxtOrgUnitCode));
+                return txt != null && !txt.Properties.IsOffscreen.ValueOrDefault;
+            }, 3000);
+            return form;
         }
 
-        private void SetText(AutomationElement tab, string id, string text)
+        private Window ClickRowAndOpenEdit(string code)
         {
-            // รอช่องตาม AutomationId ก่อน เพื่อรองรับกรณีฟอร์มยังโหลดไม่เสร็จ
-            var element = Retry(() => tab.FindFirstDescendant(cf => cf.ByAutomationId(id)), 4000)
-                          ?? throw new Exception($"ไม่พบช่อง {id}");
+            var row = Retry(() => FindGridRowByCodeInContainer(_mainWindow, code), 4000)
+                      ?? throw new Exception($"หาแถว '{code}' ไม่เจอ");
 
-            element.Focus();
-            element.Click();
-            Thread.Sleep(100);
+            row.Click();
 
-            // เลือกข้อความเดิมและล้างช่องก่อนพิมพ์ ป้องกันการต่อท้ายค่าที่กรอกไว้ก่อนหน้า
-            Keyboard.Press(VirtualKeyShort.CONTROL);
-            Keyboard.Type(VirtualKeyShort.KEY_A);
-            Keyboard.Release(VirtualKeyShort.CONTROL);
-            Keyboard.Type(VirtualKeyShort.DELETE);
-            Thread.Sleep(50);
+            var btn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName("Edit")), 3000)
+                      ?? throw new Exception("ไม่พบปุ่ม Edit");
+            btn.Click();
 
-            if (!string.IsNullOrEmpty(text))
+            var form = GetOrgUnitFormWindow();
+            WaitUntil(() =>
             {
-                // Value Pattern เร็วกว่า; หากใช้ไม่ได้จะพิมพ์ผ่าน Keyboard แทน
-                if (element.Patterns.Value.IsSupported)
+                var txt = form.FindFirstDescendant(cf => cf.ByAutomationId(IdTxtOrgUnitCode))?.AsTextBox();
+                return txt != null && !string.IsNullOrEmpty(txt.Text);
+            }, 3000);
+
+            return form;
+        }
+
+        private void PerformEdit(string testName, string existingCode, string newCode, string newName, string saveButtonName)
+        {
+            try
+            {
+                Window form = ClickRowAndOpenEdit(existingCode);
+                var context = GetGeneralTab(form);
+
+                FillTextBox(context, IdTxtOrgUnitCode, newCode);
+                FillTextBox(context, IdTxtOrgUnitName, newName);
+
+                if (saveButtonName == "Save and Close" && SafeClick(form, "Save and Close"))
                 {
-                    try { element.Patterns.Value.Pattern.SetValue(text); }
-                    catch { Keyboard.Type(text); }
+                    if (!CheckDuplicateWarningAfterSave(form, testName, newCode)) return;
+                    SafeCloseForm(form);
                 }
-                else Keyboard.Type(text);
+                else
+                {
+                    if (!TrySaveAndHandleDuplicate(form, testName, newCode, "Save")) return;
+                    SafeCloseForm(form);
+                }
+
+                WaitForClosed(() => FindOpenForm());
+                RefreshGrid();
+
+                if (VerifyRecordInGrid(newCode, refresh: false))
+                    LogSuccess(testName, $"แก้ไข '{existingCode}' เป็น '{newCode}' สำเร็จ");
+                else
+                    LogFailure(testName, $"ไม่พบ '{newCode}' ในตารางหลักหลังแก้ไข");
+            }
+            catch (Exception ex)
+            {
+                LogFailure(testName, $"แก้ไข '{existingCode}' ไม่สำเร็จ: {ex.Message}");
+            }
+        }
+
+        private void RunDeleteCase(string baseTestName, string targetCode, string confirmButton, bool expectDeleted)
+        {
+            string testName = $"{baseTestName}_{targetCode}_{confirmButton}";
+            try
+            {
+                RefreshGrid();
+
+                var row = Retry(() => FindGridRowByCodeInContainer(_mainWindow, targetCode), 4000)
+                          ?? throw new Exception($"หาแถวรหัส '{targetCode}' ในตารางหลักไม่เจอ");
+
+                row.Click();
+
+                var deleteBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName("Delete")), 3000)
+                                ?? throw new Exception("หาปุ่ม Delete ไม่เจอ");
+                deleteBtn.Click();
+
+                var dialog = Retry(() => _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault()
+                                          ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByName("คำเตือน"))?.AsWindow(), 4000)
+                             ?? throw new Exception("กด Delete แล้วไม่พบ Pop-up ยืนยัน");
+
+                ClickDialogButton(dialog, confirmButton);
+                WaitForClosed(() => dialog);
+
+                RefreshGrid();
+                bool stillExists = VerifyRecordInGrid(targetCode, timeoutMs: 3000, refresh: false);
+
+                if (expectDeleted && stillExists) throw new Exception($"'{targetCode}' ยังค้างอยู่หลังลบ");
+                if (!expectDeleted && !stillExists) throw new Exception($"'{targetCode}' หายไปทั้งที่ไม่ควรถูกลบ");
+
+                LogSuccess(testName, expectDeleted ? $"ข้อมูล '{targetCode}' ถูกลบสำเร็จ" : $"ข้อมูล '{targetCode}' ยังอยู่ตามคาด");
+            }
+            catch (Exception ex)
+            {
+                LogFailure(testName, $"ลบรหัส '{targetCode}' ไม่สำเร็จ: {ex.Message}");
+            }
+        }
+
+        private void RunCloseDialogSequence(Window form, string testNamePrefix, string expectedWarningMessage)
+        {
+            string subCase = $"{testNamePrefix}_Close_Yes";
+            ClickCloseAndHandleDialog(form, "Yes");
+            AssertTaskResult(form, new[] { expectedWarningMessage }, subCase, $"พบข้อความ: '{expectedWarningMessage}' และ ฟอร์มถูกเปิดอยู่");
+            CheckFormOpenOnly(form);
+
+            subCase = $"{testNamePrefix}_Close_Cancel";
+            ClickCloseAndHandleDialog(form, "Cancel");
+            AssertFormOpen(form, subCase);
+
+            subCase = $"{testNamePrefix}_Close_No";
+            ClickCloseAndHandleDialog(form, "No");
+            AssertFormClosed(form, subCase);
+        }
+
+        private bool TrySaveAndHandleDuplicate(Window form, string testName, string code, string saveBtn)
+        {
+            SafeClick(form, saveBtn);
+
+            if (testName.Contains("Validation")) return true;
+
+            var panel = FindTaskResultPanel(form, 2000);
+            if (panel == null) return true;
+
+            string? dup = DetectDuplicateMessage(GetPanelTexts(panel));
+            if (dup == null) return true;
+
+            LogFailure(testName, $"'{code}' ข้อมูลซ้ำ: {dup}");
+            try { ClickCloseAndHandleDialog(form, "No"); } catch { }
+            return false;
+        }
+
+        private bool CheckDuplicateWarningAfterSave(Window form, string testName, string code)
+        {
+            var panel = FindTaskResultPanel(form, 2000);
+            if (panel == null) return true;
+
+            string? dup = DetectDuplicateMessage(GetPanelTexts(panel));
+            if (dup == null) return true;
+
+            LogFailure(testName, $"'{code}' ข้อมูลซ้ำ: {dup}");
+            try { ClickCloseAndHandleDialog(form, "No"); } catch { }
+            return false;
+        }
+
+        private static string? DetectDuplicateMessage(IEnumerable<string> texts)
+        {
+            if (texts.Any(t => t.Contains("รหัสหน่วยงาน ห้ามซ้ำ") || t.Contains("ห้ามซ้ำ"))) return "รหัสหรือข้อมูลซ้ำ";
+            return null;
+        }
+
+        private void AssertTaskResult(Window form, string[] msgs, string testName, string? customMsg = null)
+        {
+            var pending = new HashSet<string>(msgs);
+            var lastSeenTexts = new List<string>();
+            var sw = Stopwatch.StartNew();
+
+            while (sw.ElapsedMilliseconds < 5000 && pending.Count > 0)
+            {
+                var panel = FindTaskResultPanel(form, 500);
+                if (panel != null)
+                {
+                    var texts = GetPanelTexts(panel).ToList();
+                    lastSeenTexts = texts;
+                    foreach (var m in pending.ToList())
+                    {
+                        string cleanM = m.Replace(" ", "");
+                        if (texts.Any(t => t.Replace(" ", "").Contains(cleanM)))
+                            pending.Remove(m);
+                    }
+                }
+                if (pending.Count == 0) break;
+                Thread.Sleep(100);
             }
 
-            // TAB เพื่อ Commit ค่าออกจากช่อง
-            Keyboard.Press(VirtualKeyShort.TAB);
-            Thread.Sleep(100);
+            if (pending.Count > 0)
+            {
+                string actualDump = lastSeenTexts.Count > 0 ? string.Join(" | ", lastSeenTexts.Distinct()) : "(ไม่มีข้อความ)";
+                throw new Exception($"ไม่พบข้อความ: '{string.Join("', '", pending)}' | ข้อความจริง: [{actualDump}]");
+            }
+
+            string logMsg = customMsg ?? $"พบข้อความ: {string.Join(",", msgs.Select(m => $"'{m}'"))}";
+            LogSuccess(testName, logMsg);
         }
 
-        // ค้นหาแถวในตารางหลักจากรหัส (Name/Value ของแถวหรือเซลล์ลูก)
-        private AutomationElement? FindGridElement(string val) => FindGridRowByCodeInContainer(_mainWindow, val);
+        private AutomationElement? FindTaskResultPanel(Window form, int timeoutMs) =>
+            Retry(() => form.FindFirstDescendant(cf => cf.ByName("Task Result"))
+                        ?? form.FindFirstDescendant(cf => cf.ByAutomationId("dockPanelTaskResult"))
+                        ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Task Result"))
+                        ?? _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("dockPanelTaskResult")), timeoutMs);
+
+        private static IEnumerable<string> GetPanelTexts(AutomationElement panel)
+        {
+            foreach (var el in panel.FindAllDescendants())
+            {
+                if (!string.IsNullOrEmpty(el.Name)) yield return el.Name;
+                if (el.Patterns.Value.IsSupported && !string.IsNullOrEmpty(el.Patterns.Value.Pattern.Value.Value))
+                    yield return el.Patterns.Value.Pattern.Value.Value;
+            }
+        }
+
+        private void SelectLookupValue(AutomationElement context, string buttonAutomationId, string targetCode, string fieldLabel)
+        {
+            if (string.IsNullOrEmpty(targetCode)) return;
+
+            var targetControl = context.FindFirstDescendant(cf => cf.ByAutomationId(buttonAutomationId))
+                ?? context.FindFirstDescendant(cf => cf.ByName(fieldLabel))
+                ?? throw new Exception($"หาฟิลด์ '{fieldLabel}' ไม่เจอ");
+
+            targetControl.Focus();
+
+            var innerBtn = targetControl.FindFirstDescendant(cf => cf.ByControlType(ControlType.Button));
+            if (innerBtn != null)
+            {
+                innerBtn.Click();
+            }
+            else
+            {
+                targetControl.Click();
+                Keyboard.Type(VirtualKeyShort.F4);
+            }
+
+            if (!WaitUntil(IsLookupDialogOpen, 2000))
+            {
+                targetControl.Click();
+                Keyboard.Type(VirtualKeyShort.F4);
+            }
+
+            var lookupDialog = Retry(() =>
+            {
+                var modal = _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault();
+                if (modal != null) return modal;
+
+                return _automation.GetDesktop().FindAllChildren(cf => cf.ByControlType(ControlType.Window))
+                    .FirstOrDefault(w => !string.IsNullOrEmpty(w.Name) &&
+                                         (w.Name.Contains("ข้อมูลประเภทหน่วยงาน") ||
+                                          w.Name.Contains("ข้อมูลหน่วยงาน") ||
+                                          w.Name.Contains("ข้อมูล")))?.AsWindow();
+            }, timeoutMs: 4000) ?? throw new Exception($"ไม่พบ Pop-up Dialog ของ '{fieldLabel}'");
+
+            lookupDialog.Focus();
+
+            var row = FindGridRowByCodeInContainer(lookupDialog, targetCode);
+            if (row != null)
+            {
+                row.Click();
+
+                var selectButton = Retry(() =>
+                    lookupDialog.FindFirstDescendant(cf => cf.ByName("button 'Select'"))
+                    ?? lookupDialog.FindFirstDescendant(cf => cf.ByName("Select"))
+                    ?? lookupDialog.FindFirstDescendant(cf => cf.ByName("button 'ตกลง'"))
+                    ?? lookupDialog.FindFirstDescendant(cf => cf.ByName("ตกลง"))
+                    ?? lookupDialog.FindFirstDescendant(cf => cf.ByAutomationId("btnSelect")), timeoutMs: 2000);
+
+                if (selectButton != null)
+                {
+                    selectButton.Click();
+                }
+                else
+                {
+                    row.DoubleClick();
+                }
+                WaitForClosed(() => lookupDialog, 3000);
+            }
+        }
+
+        private bool IsLookupDialogOpen()
+        {
+            var modal = _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault();
+            if (modal != null) return true;
+
+            var desktopWin = _automation.GetDesktop().FindAllChildren(cf => cf.ByControlType(ControlType.Window))
+                .FirstOrDefault(w => !string.IsNullOrEmpty(w.Name) &&
+                                    (w.Name.Contains("ข้อมูลประเภทหน่วยงาน") || w.Name.Contains("ข้อมูลหน่วยงาน")));
+            return desktopWin != null;
+        }
+
+        private void ClearLookupValue(AutomationElement context, string buttonAutomationId)
+        {
+            var targetControl = context.FindFirstDescendant(cf => cf.ByAutomationId(buttonAutomationId));
+            if (targetControl != null)
+            {
+                targetControl.Focus();
+                Keyboard.Press(VirtualKeyShort.CONTROL);
+                Keyboard.Type(VirtualKeyShort.KEY_A);
+                Keyboard.Release(VirtualKeyShort.CONTROL);
+                Keyboard.Type(VirtualKeyShort.DELETE);
+
+                if (targetControl.Patterns.Value.IsSupported)
+                {
+                    try { targetControl.Patterns.Value.Pattern.SetValue(string.Empty); } catch { }
+                }
+            }
+        }
+
+        private void ClickCloseAndHandleDialog(Window form, string buttonToClick)
+        {
+            form.Focus();
+
+            var closeBtn = form.FindFirstDescendant(cf => cf.ByName("Close"))
+                        ?? form.FindFirstDescendant(cf => cf.ByName("&Close"))
+                        ?? form.FindFirstDescendant(cf => cf.ByName("button 'Close'"));
+
+            if (closeBtn != null) closeBtn.Click();
+            else SafeClick(form, "Close");
+
+            Window? confirmDialog = Retry(() =>
+                form.ModalWindows.FirstOrDefault() ??
+                _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault() ??
+                _automation.GetDesktop().FindFirstChild(cf => cf.ByName("คำเตือน"))?.AsWindow() ??
+                _automation.GetDesktop().FindFirstChild(cf => cf.ByName("Question"))?.AsWindow(), timeoutMs: 4000);
+
+            if (confirmDialog == null) throw new Exception("กด Close แล้วไม่พบ Pop-up ยืนยันคำเตือน");
+
+            ClickDialogButton(confirmDialog, buttonToClick);
+            WaitForClosed(() => confirmDialog);
+        }
+
+        private void ClickDialogButton(AutomationElement dialog, string buttonName)
+        {
+            var btn = dialog.FindFirstDescendant(cf => cf.ByName(buttonName))
+                   ?? dialog.FindFirstDescendant(cf => cf.ByName($"&{buttonName}"))
+                   ?? dialog.FindFirstDescendant(cf => cf.ByName($"button '&{buttonName}'"))
+                   ?? dialog.FindFirstDescendant(cf => cf.ByAutomationId($"btn{buttonName}"));
+
+            if (btn == null)
+            {
+                var allButtons = dialog.FindAllDescendants(cf => cf.ByControlType(ControlType.Button));
+                btn = allButtons.FirstOrDefault(b => b.Name != null && b.Name.Contains(buttonName, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (btn != null)
+            {
+                btn.Click();
+            }
+            else
+            {
+                char shortcutChar = buttonName.Trim().ToUpper()[0];
+                Keyboard.TypeSimultaneously(VirtualKeyShort.ALT, (VirtualKeyShort)Enum.Parse(typeof(VirtualKeyShort), $"KEY_{shortcutChar}"));
+            }
+        }
+
+        private void SafeCloseForm(Window form)
+        {
+            SafeClick(form, "Close");
+            Window? dialog = Retry(() =>
+                form.ModalWindows.FirstOrDefault() ??
+                _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault() ??
+                _automation.GetDesktop().FindFirstChild(cf => cf.ByName("คำเตือน"))?.AsWindow() ??
+                _automation.GetDesktop().FindFirstChild(cf => cf.ByName("Question"))?.AsWindow(), timeoutMs: 1500);
+
+            if (dialog != null)
+            {
+                try { ClickDialogButton(dialog, "No"); }
+                catch { _ = SafeClick(dialog, "No") || SafeClick(dialog, "&No") || SafeClick(dialog, "Cancel"); }
+                WaitForClosed(() => dialog);
+            }
+
+            WaitForClosed(() => FindOpenForm());
+        }
+
+        private void SwitchToTab(Window form, string tabAutomationId, string tabName)
+        {
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                try { Keyboard.Type(VirtualKeyShort.ESCAPE); } catch { }
+
+                var tab = Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(tabAutomationId))
+                                       ?? form.FindFirstDescendant(cf => cf.ByName(tabName)), 2000);
+
+                if (tab == null) continue;
+
+                tab.Click();
+
+                if (WaitUntil(() => IsTabSelected(tab), 1500)) return;
+            }
+        }
+
+        private bool IsTabSelected(AutomationElement tab)
+        {
+            try
+            {
+                if (tab.Patterns.SelectionItem.IsSupported)
+                    return tab.Patterns.SelectionItem.Pattern.IsSelected.Value;
+            }
+            catch { }
+            return true;
+        }
 
         private AutomationElement? FindGridRowByCodeInContainer(AutomationElement container, string code)
         {
@@ -506,270 +863,90 @@ namespace HRMITestFlaUI.Module.Organization
             }, timeoutMs: 4000);
         }
 
-        private bool TrySaveAndHandleDuplicate(Window form, string testName, string code, string saveBtn)
+        private void CheckFormOpenOnly(Window form)
         {
-            // บันทึกข้อมูลก่อน แล้วตรวจ Task Result เฉพาะการเพิ่ม/แก้ไขปกติ
-            if (!SafeClick(form, saveBtn)) throw new Exception($"ไม่พบปุ่ม {saveBtn}");
-
-            if (testName.Contains("Validation")) return true;
-
-            var panel = FindTaskResultPanel(form, 1500);
-            if (panel == null) return true;
-
-            string? dup = DetectDuplicateMessage(GetPanelTexts(panel));
-            if (dup == null) return true;
-
-            // เมื่อตรวจพบข้อมูลซ้ำ บันทึกผลล้มเหลวและพยายามปิดฟอร์มโดยตอบ No
-            LogFailure(testName, $"'{code}' ข้อมูลซ้ำ: {dup}");
-            try { ClickCloseAndHandleDialog(form, "No", $"{testName}_Close"); } catch { }
-            return false;
+            if (!WaitUntil(() => !form.Properties.IsOffscreen.ValueOrDefault && form.IsAvailable, 2000))
+                throw new Exception("ฟอร์มถูกปิด");
         }
 
-        private static string? DetectDuplicateMessage(IEnumerable<string> texts)
+        private void AssertFormOpen(Window form, string testName)
         {
-            if (texts.Any(t => t.Contains("ห้ามซ้ำ"))) return "รหัสหรือข้อมูลซ้ำ";
-            return null;
-        }
-
-        private void FillSaveAssert(AutomationElement tab, Window form, string code, string name, string saveBtn, string testName, params string[] msgs)
-        {
-            // ใช้ใน Validation: ตั้งค่ารหัส/ชื่อ กดปุ่มบันทึก และตรวจว่าพบข้อความที่คาดหวังครบทุกข้อความ
-            try { form.Focus(); } catch { }
-            SetText(tab, IdTxtOrgUnitCode, code);
-            SetText(tab, IdTxtOrgUnitName, name);
-
-            // โหมด Edit อาจไม่มีปุ่ม Save and New จึงถอยไปใช้ Save
-            if (!SafeClick(form, saveBtn)) SafeClick(form, "Save");
-            AssertTaskResult(form, msgs, testName);
-        }
-
-        // เหมือน FillSaveAssert และยืนยันเพิ่มว่าฟอร์มยังเปิดอยู่ (Validation ที่ไม่ผ่านต้องไม่ปิดฟอร์ม)
-        private void FillSaveAssertAndOpen(AutomationElement tab, Window form, string code, string name, string saveBtn, string testName, params string[] msgs)
-        {
-            FillSaveAssert(tab, form, code, name, saveBtn, testName, msgs);
-            AssertFormOpen(form, testName);
-        }
-
-        private Window ClickRowAndOpenEdit(string code)
-        {
-            RefreshGrid();
-
-            // ค้นหาแถวที่ตรงกับรหัสโดยเฉพาะ เพื่อป้องกันการคลิกโดนแถวแรกค้าง
-            var row = Retry(() => FindGridElement(code), 4000)
-                      ?? throw new Exception($"หาแถว '{code}' ไม่เจอ");
-
-            WaitUntil(() => { try { row.Focus(); return true; } catch { return false; } }, 1000);
-            row.Click();
-
-            // หลังเลือกแถวจึงกด Edit และรอจนฟอร์มแก้ไขพร้อมช่องรหัส
-            var btn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName("Edit")), 3000) ?? throw new Exception("ไม่พบปุ่ม Edit");
-            btn.Click();
-            var form = Retry(FindOpenForm, 8000) ?? throw new Exception("หาฟอร์มไม่เจอ");
-            WaitUntil(() =>
-            {
-                var txt = form.FindFirstDescendant(cf => cf.ByAutomationId(FirstObjectID))?.AsTextBox();
-                return txt != null && !string.IsNullOrEmpty(txt.Text);
-            }, 3000);
-            return form;
-        }
-
-        private void RunCloseDialogSequence(Window form, string prefix, string expectedMsg)
-        {
-            // ทดสอบผลของ Yes, Cancel และ No เมื่อปิดฟอร์มที่ยังมีข้อมูลผิดพลาด/ยังบันทึกไม่ได้
-            // Yes ตรวจข้อความแจ้งเตือนและยืนยันว่าฟอร์มยังอยู่; Cancel ต้องคงฟอร์มไว้; No ต้องปิดฟอร์ม
-            string ySub = $"{prefix}_Close_Yes";
-            ClickCloseAndHandleDialog(form, "Yes", ySub);
-            AssertTaskResult(form, new[] { expectedMsg }, ySub, $"พบข้อความ: '{expectedMsg}' และ ฟอร์มถูกเปิดอยู่");
             CheckFormOpenOnly(form);
-
-            string cSub = $"{prefix}_Close_Cancel";
-            ClickCloseAndHandleDialog(form, "Cancel", cSub);
-            AssertFormOpen(form, cSub);
-
-            string nSub = $"{prefix}_Close_No";
-            ClickCloseAndHandleDialog(form, "No", nSub);
-            AssertFormClosed(form, nSub);
+            LogSuccess(testName, "ฟอร์มถูกเปิดอยู่");
         }
 
-        private void ClickCloseAndHandleDialog(Window form, string btnName, string testName)
+        private void AssertFormClosed(Window form, string testName)
         {
-            // กด Close แล้วค้นหา Dialog จากลำดับแหล่งต่าง ๆ เพราะ Dialog อาจผูกกับฟอร์มหรือหน้าต่างหลัก
-            try { form.Focus(); } catch { }
-            if (!SafeClick(form, "Close")) throw new Exception("ไม่พบปุ่ม Close");
-
-            var dlg = FindConfirmDialog(form, 4000) ?? throw new Exception("ไม่พบ Pop-up ยืนยัน");
-            ClickDialogButton(dlg, btnName);
-            WaitForClosed(() => dlg);
+            if (!WaitUntil(() => form.Properties.IsOffscreen.ValueOrDefault || !form.IsAvailable, 3000))
+                throw new Exception("ฟอร์มไม่ถูกปิด");
+            LogSuccess(testName, "ฟอร์มถูกปิด");
         }
 
-        private Window? FindConfirmDialog(Window form, int timeoutMs) =>
-            Retry(() => form.ModalWindows.FirstOrDefault()
-                        ?? _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault()
-                        ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByName("คำเตือน"))?.AsWindow()
-                        ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByName("Question"))?.AsWindow(), timeoutMs);
 
-        private void ClickDialogButton(AutomationElement dialog, string buttonName)
+        // =========================================================================================
+        // หมวดที่ 3: ส่วนการทำงานกลางที่ตายตัว (Common / Reusable Helpers)
+        // =========================================================================================
+
+        private readonly AutomationElement _mainWindow;
+        private readonly UIA3Automation _automation;
+        private int _totalSuccess = 0, _totalFail = 0;
+        private const int TimeoutMs = 6000;
+
+        public OrganizationUnitInfoUC(AutomationElement mainWindow, UIA3Automation automation)
         {
-            // รองรับทั้งชื่อปุ่มปกติและชื่อที่มี access key นำหน้าด้วย &
-            var btn = dialog.FindFirstDescendant(cf => cf.ByName(buttonName))
-                   ?? dialog.FindFirstDescendant(cf => cf.ByName($"&{buttonName}"))
-                   ?? dialog.FindFirstDescendant(cf => cf.ByName($"button '&{buttonName}'"))
-                   ?? dialog.FindFirstDescendant(cf => cf.ByAutomationId($"btn{buttonName}"));
-
-            if (btn == null)
-            {
-                var allButtons = dialog.FindAllDescendants(cf => cf.ByControlType(ControlType.Button));
-                btn = allButtons.FirstOrDefault(b => b.Name != null && b.Name.Contains(buttonName, StringComparison.OrdinalIgnoreCase));
-            }
-
-            if (btn != null)
-            {
-                btn.Click();
-            }
-            else
-            {
-                // ไม่พบปุ่ม: ใช้ Alt + ตัวอักษรแรกของปุ่มเป็นทางเลือกสุดท้าย
-                char shortcutChar = buttonName.Trim().ToUpper()[0];
-                Keyboard.TypeSimultaneously(VirtualKeyShort.ALT, (VirtualKeyShort)Enum.Parse(typeof(VirtualKeyShort), $"KEY_{shortcutChar}"));
-            }
+            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
+            _automation = automation ?? throw new ArgumentNullException(nameof(automation));
         }
 
-        // ปิดฟอร์มด้วยปุ่ม Close; หากมี Dialog ถามยืนยันให้ตอบ No
-        private void SafeCloseForm(Window form)
+        private void RefreshGrid()
         {
-            SafeClick(form, "Close");
-            var dialog = FindConfirmDialog(form, 1500);
-
-            if (dialog != null)
-            {
-                try { ClickDialogButton(dialog, "No"); }
-                catch { _ = SafeClick(dialog, "No") || SafeClick(dialog, "&No") || SafeClick(dialog, "Cancel"); }
-                WaitForClosed(() => dialog);
-            }
-
-            WaitForClosed(() => FindOpenForm());
-        }
-
-        // เก็บกวาด Dialog ที่ค้างอยู่ก่อน/หลังชุดทดสอบ
-        public void EnsureNoStrayModal(string context)
-        {
+            try { _mainWindow.FindFirstDescendant(cf => cf.ByName("Find"))?.Click(); } catch { }
             try
             {
-                var modals = _mainWindow.AsWindow()?.ModalWindows?.ToList() ?? new List<Window>();
-                foreach (var modal in modals)
-                {
-                    string autoId = modal.Properties.AutomationId.ValueOrDefault ?? "";
-                    string name = modal.Name ?? "";
-
-                    if (autoId == FormId || name.Contains(MenuName) || name.Contains("Prosoft HRMI")) continue;
-
-                    if (name.Contains("คำเตือน") || name.Contains("Question"))
-                    {
-                        try { ClickDialogButton(modal, "No"); }
-                        catch { _ = SafeClick(modal, "No") || SafeClick(modal, "&No") || SafeClick(modal, "Cancel"); }
-                        WaitForClosed(() => modal, 2000);
-                    }
-                    else if (name.Contains("Task Result") || autoId.Contains("TaskResult"))
-                    {
-                        _ = SafeClick(modal, "Close") || SafeClick(modal, "OK");
-                        WaitForClosed(() => modal, 2000);
-                    }
-                }
+                var g = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.DataGrid))
+                                     ?? _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.Table)), 2000);
+                g?.Focus();
+                g?.Click();
             }
-            catch (Exception ex) { TestLogger.LogInfo(context, $"EnsureNoStrayModal: {ex.Message}"); }
+            catch { }
         }
 
-        // เลือกค่าจาก Lookup (ปุ่มเปิด Pop-up) ตามรหัสที่ต้องการ
-        private void SelectLookupValue(AutomationElement context, string buttonAutomationId, string targetCode, string fieldLabel)
+        private bool VerifyRecordInGrid(string val, int timeoutMs = 5000, bool refresh = true)
         {
-            if (string.IsNullOrEmpty(targetCode)) return;
-
-            var targetControl = context.FindFirstDescendant(cf => cf.ByAutomationId(buttonAutomationId))
-                ?? context.FindFirstDescendant(cf => cf.ByName(fieldLabel))
-                ?? throw new Exception($"หาฟิลด์ '{fieldLabel}' ไม่เจอ");
-
-            targetControl.Focus();
-
-            var innerBtn = targetControl.FindFirstDescendant(cf => cf.ByControlType(ControlType.Button));
-            if (innerBtn != null) innerBtn.Click();
-            else
-            {
-                targetControl.Click();
-                Keyboard.Type(VirtualKeyShort.F4);
-            }
-
-            if (!WaitUntil(IsLookupDialogOpen, 2000))
-            {
-                targetControl.Click();
-                Keyboard.Type(VirtualKeyShort.F4);
-            }
-
-            var lookupDialog = Retry(() =>
-            {
-                var modal = _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault();
-                if (modal != null) return modal;
-
-                return _automation.GetDesktop().FindAllChildren(cf => cf.ByControlType(ControlType.Window))
-                    .FirstOrDefault(w => !string.IsNullOrEmpty(w.Name) &&
-                                         (w.Name.Contains("ข้อมูลประเภทหน่วยงาน") ||
-                                          w.Name.Contains("ข้อมูลหน่วยงาน") ||
-                                          w.Name.Contains("ข้อมูล")))?.AsWindow();
-            }, 4000) ?? throw new Exception($"ไม่พบ Pop-up Dialog ของ '{fieldLabel}'");
-
-            lookupDialog.Focus();
-
-            var row = FindGridRowByCodeInContainer(lookupDialog, targetCode);
-            if (row != null)
-            {
-                row.Click();
-
-                var selectButton = Retry(() =>
-                    lookupDialog.FindFirstDescendant(cf => cf.ByName("button 'Select'"))
-                    ?? lookupDialog.FindFirstDescendant(cf => cf.ByName("Select"))
-                    ?? lookupDialog.FindFirstDescendant(cf => cf.ByName("button 'ตกลง'"))
-                    ?? lookupDialog.FindFirstDescendant(cf => cf.ByName("ตกลง"))
-                    ?? lookupDialog.FindFirstDescendant(cf => cf.ByAutomationId("btnSelect")), 2000);
-
-                if (selectButton != null) selectButton.Click();
-                else row.DoubleClick();
-
-                WaitForClosed(() => lookupDialog, 3000);
-            }
+            if (refresh) RefreshGrid();
+            return Retry(() => FindGridRowByCodeInContainer(_mainWindow, val), timeoutMs) != null;
         }
 
-        private bool IsLookupDialogOpen()
+        private void LogGridResult(string testName, string code)
         {
-            var modal = _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault();
-            if (modal != null) return true;
-
-            var desktopWin = _automation.GetDesktop().FindAllChildren(cf => cf.ByControlType(ControlType.Window))
-                .FirstOrDefault(w => !string.IsNullOrEmpty(w.Name) &&
-                                     (w.Name.Contains("ข้อมูลประเภทหน่วยงาน") || w.Name.Contains("ข้อมูลหน่วยงาน")));
-            return desktopWin != null;
+            if (VerifyRecordInGrid(code)) LogSuccess(testName, $"'{code}' เพิ่มสำเร็จ (พบในตารางหลัก)");
+            else LogFailure(testName, $"'{code}' ไม่พบในตารางหลักหลังบันทึก");
         }
 
-        private void ClearLookupValue(AutomationElement context, string buttonAutomationId)
+        private void RunStep(string testName, Action act, int progress, string progressMessage)
         {
-            var targetControl = context.FindFirstDescendant(cf => cf.ByAutomationId(buttonAutomationId));
-            if (targetControl == null) return;
+            try { act(); }
+            catch (Exception ex) { LogFailure(testName, $"ไม่ผ่าน: {ex.Message}"); }
+            TestProgressHelper.Report(progress, progressMessage);
+        }
 
-            targetControl.Focus();
-            Keyboard.Press(VirtualKeyShort.CONTROL);
-            Keyboard.Type(VirtualKeyShort.KEY_A);
-            Keyboard.Release(VirtualKeyShort.CONTROL);
-            Keyboard.Type(VirtualKeyShort.DELETE);
+        private void LogSuccess(string testName, string message)
+        {
+            _totalSuccess++;
+            TestLogger.LogSuccess(testName, message);
+        }
 
-            if (targetControl.Patterns.Value.IsSupported)
-            {
-                try { targetControl.Patterns.Value.Pattern.SetValue(string.Empty); } catch { }
-            }
+        private void LogFailure(string testName, string message)
+        {
+            _totalFail++;
+            TestLogger.LogFailure(testName, message);
         }
 
         private bool SafeClick(AutomationElement scope, string buttonName, int timeoutMs = 6000)
         {
-            var btn = Retry(() => scope.FindFirstDescendant(cf => cf.ByName(buttonName))
-                                  ?? scope.FindFirstDescendant(cf => cf.ByName($"&{buttonName}"))
-                                  ?? scope.FindFirstDescendant(cf => cf.ByAutomationId(buttonName)), timeoutMs);
+            var btn = Retry(() => scope.FindFirstDescendant(cf => cf.ByName(buttonName)
+                                                                ?? cf.ByName($"&{buttonName}")
+                                                                ?? cf.ByAutomationId(buttonName)), timeoutMs);
             if (btn == null) return false;
 
             try
@@ -785,142 +962,101 @@ namespace HRMITestFlaUI.Module.Organization
             catch { return false; }
         }
 
-        private void CheckFormOpenOnly(Window form)
-        {
-            // ฟอร์มถือว่ายังเปิดเมื่อ UIA มองเห็นและ AutomationElement ยังใช้งานได้
-            if (!WaitUntil(() => !form.Properties.IsOffscreen.ValueOrDefault && form.IsAvailable, 2000))
-                throw new Exception("ฟอร์มถูกปิด");
-        }
+        private bool SafeClickMainWindow(string buttonName, int timeoutMs = 6000) => SafeClick(_mainWindow, buttonName, timeoutMs);
 
-        private void AssertFormOpen(Window form, string testName)
+        private void FillTextBox(AutomationElement context, string automationId, string text)
         {
-            CheckFormOpenOnly(form);
-            LogSuccess(testName, "ฟอร์มถูกเปิดอยู่");
-        }
+            var element = Retry(() => context.FindFirstDescendant(cf => cf.ByAutomationId(automationId)), timeoutMs: 4000)
+                ?? throw new Exception($"หาช่องกรอก '{automationId}' ไม่เจอ");
 
-        private void AssertFormClosed(Window form, string testName)
-        {
-            // รอจนฟอร์มหายไปจาก UI หรือถูกซ่อน แล้วบันทึกผลสำเร็จ
-            if (!WaitUntil(() => form.Properties.IsOffscreen.ValueOrDefault || !form.IsAvailable, 3000))
-                throw new Exception("ปิดฟอร์มไม่สำเร็จ");
-            LogSuccess(testName, "ฟอร์มถูกปิด");
-        }
+            element.Focus();
+            element.Click();
+            Thread.Sleep(100);
 
-        private void AssertTaskResult(Window form, string[] msgs, string testName, string? customMsg = null)
-        {
-            // เก็บข้อความที่ยังต้องตรวจไว้ และนำออกเมื่อพบข้อความนั้นใน Task Result
-            var pending = new HashSet<string>(msgs);
-            var lastSeenTexts = new List<string>();
-            var sw = Stopwatch.StartNew();
+            Keyboard.Press(VirtualKeyShort.CONTROL);
+            Keyboard.Type(VirtualKeyShort.KEY_A);
+            Keyboard.Release(VirtualKeyShort.CONTROL);
+            Keyboard.Type(VirtualKeyShort.DELETE);
+            Thread.Sleep(50);
 
-            // ตรวจซ้ำช่วงสั้น ๆ เพราะแผงผลลัพธ์อาจอัปเดตหลังคลิก Save เล็กน้อย
-            while (sw.ElapsedMilliseconds < 5000 && pending.Count > 0)
+            if (!string.IsNullOrEmpty(text))
             {
-                var panel = FindTaskResultPanel(form, 500);
-                if (panel != null)
+                if (element.Patterns.Value.IsSupported)
                 {
-                    var texts = GetPanelTexts(panel).ToList();
-                    lastSeenTexts = texts;
-                    foreach (var m in pending.ToList())
-                    {
-                        string cleanM = m.Replace(" ", "");
-                        if (texts.Any(t => t.Replace(" ", "").Contains(cleanM))) pending.Remove(m);
-                    }
+                    try { element.Patterns.Value.Pattern.SetValue(text); }
+                    catch { Keyboard.Type(text); }
                 }
-                if (pending.Count == 0) break;
-                Thread.Sleep(100);
+                else
+                {
+                    Keyboard.Type(text);
+                }
             }
 
-            if (pending.Count > 0)
-            {
-                string actualDump = lastSeenTexts.Count > 0 ? string.Join(" | ", lastSeenTexts.Distinct()) : "(ไม่มีข้อความ)";
-                throw new Exception($"ไม่พบข้อความ: '{string.Join("', '", pending)}' | ข้อความจริง: [{actualDump}]");
-            }
-
-            string logMsg = customMsg ?? $"พบข้อความ: {string.Join(",", msgs.Select(m => $"'{m}'"))}";
-            LogSuccess(testName, logMsg);
+            Keyboard.Press(VirtualKeyShort.TAB);
+            Thread.Sleep(100);
         }
 
-        // ค้นหาแผง Task Result ในฟอร์มก่อน แล้วจึงค้นในหน้าต่างหลัก เผื่อแผงถูก Dock ไว้ภายนอกฟอร์ม
-        private AutomationElement? FindTaskResultPanel(Window form, int timeoutMs) =>
-            Retry(() => form.FindFirstDescendant(cf => cf.ByName("Task Result"))
-                        ?? form.FindFirstDescendant(cf => cf.ByAutomationId("dockPanelTaskResult"))
-                        ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Task Result"))
-                        ?? _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("dockPanelTaskResult")), timeoutMs);
-
-        private static IEnumerable<string> GetPanelTexts(AutomationElement panel)
+        private void ClearField(AutomationElement context, string automationId)
         {
-            // อ่านทั้งชื่อองค์ประกอบและ Value Pattern เพราะข้อความอาจถูกเปิดเผยผ่านคนละ property
-            foreach (var el in panel.FindAllDescendants())
+            var element = Retry(() => context.FindFirstDescendant(cf => cf.ByAutomationId(automationId)), timeoutMs: 3000);
+            if (element != null)
             {
-                if (!string.IsNullOrEmpty(el.Name)) yield return el.Name;
-                if (el.Patterns.Value.IsSupported && !string.IsNullOrEmpty(el.Patterns.Value.Pattern.Value.Value))
-                    yield return el.Patterns.Value.Pattern.Value.Value;
+                try
+                {
+                    element.Focus();
+                    element.Click();
+                    Thread.Sleep(100);
+
+                    Keyboard.Press(VirtualKeyShort.CONTROL);
+                    Keyboard.Type(VirtualKeyShort.KEY_A);
+                    Keyboard.Release(VirtualKeyShort.CONTROL);
+                    Keyboard.Type(VirtualKeyShort.DELETE);
+
+                    if (element.Patterns.Value.IsSupported)
+                    {
+                        try { element.Patterns.Value.Pattern.SetValue(string.Empty); } catch { }
+                    }
+
+                    Keyboard.Press(VirtualKeyShort.TAB);
+                    Thread.Sleep(100);
+                }
+                catch { }
             }
         }
 
-        private void RefreshGrid()
+        public void EnsureNoStrayModal(string context)
         {
-            // กด Find เพื่อขอให้หน้าจอโหลดรายการล่าสุด แล้วโฟกัส/คลิก Grid เพื่อให้พร้อมรับการเลือกแถว
-            // การรีเฟรชเป็น best-effort เพราะบางหน้าจออาจไม่มีปุ่มหรือ Grid ที่ระบุได้
-            try { _mainWindow.FindFirstDescendant(cf => cf.ByName("Find"))?.Click(); } catch { }
             try
             {
-                var g = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.DataGrid))
-                                    ?? _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.Table)), 2000);
-                WaitUntil(() => { try { g?.Focus(); return true; } catch { return false; } }, 1000);
-                g?.Click();
+                var modals = _mainWindow.AsWindow()?.ModalWindows?.ToList() ?? new List<Window>();
+                foreach (var modal in modals)
+                {
+                    string autoId = modal.Properties.AutomationId.ValueOrDefault ?? "";
+                    string name = modal.Name ?? "";
+
+                    if (autoId == FormId || name.Contains("บันทึกข้อมูลหน่วยงาน") || name.Contains("Prosoft HRMI")) continue;
+
+                    if (name.Contains("คำเตือน") || name.Contains("Question"))
+                    {
+                        try { ClickDialogButton(modal, "No"); }
+                        catch { _ = SafeClick(modal, "No") || SafeClick(modal, "&No") || SafeClick(modal, "Cancel"); }
+                        WaitForClosed(() => modal, 2000);
+                    }
+                    else if (name.Contains("Task Result") || autoId.Contains("TaskResult"))
+                    {
+                        _ = SafeClick(modal, "Close") || SafeClick(modal, "OK");
+                        WaitForClosed(() => modal, 2000);
+                    }
+                }
             }
-            catch { }
-        }
-
-        private bool VerifyRecordInGrid(string val, int timeoutMs = 5000, bool refresh = true)
-        {
-            // ให้เลือกได้ว่าจะรีเฟรชก่อนตรวจหรือไม่; ผู้เรียกที่เพิ่งรีเฟรชเองสามารถส่ง refresh=false
-            if (refresh) RefreshGrid();
-            return Retry(() => FindGridElement(val), timeoutMs) != null;
-        }
-
-        private void LogGridResult(string testName, string code)
-        {
-            // ใช้การปรากฏของรหัสใน Grid เป็นหลักฐานว่าการเพิ่มรายการสำเร็จ
-            if (VerifyRecordInGrid(code)) LogSuccess(testName, $"'{code}' เพิ่มสำเร็จ (พบในตารางหลัก)");
-            else LogFailure(testName, $"'{code}' ไม่พบในตารางหลักหลังบันทึก");
-        }
-
-        // -------------------------------------------------------------
-        // 2. Helper ทั่วไปที่ไม่ต้องแก้ไขคำสั่ง
-        //    กลุ่มนี้อยู่ท้ายสุดเพื่อแยกจาก Helper ที่ควบคุมหน้าจอ
-        // -------------------------------------------------------------
-        private void RunStep(string testName, Action act)
-        {
-            // แยกการทดสอบเป็นขั้นย่อย: ความผิดพลาดถูกบันทึกเป็น Failure โดยไม่หยุดขั้นถัดไป
-            try { act(); }
-            catch (Exception ex) { LogFailure(testName, $"ไม่ผ่าน: {ex.Message}"); }
-        }
-
-        private void RunStep(string testName, Action act, int progress, string progressMessage)
-        {
-            RunStep(testName, act);
-            TestProgressHelper.Report(progress, progressMessage);
-        }
-
-        private void LogSuccess(string testName, string msg)
-        {
-            // นับผลก่อนส่งรายละเอียดไปยัง TestLogger
-            _totalSuccess++;
-            TestLogger.LogSuccess(testName, msg);
-        }
-
-        private void LogFailure(string testName, string msg)
-        {
-            _totalFail++;
-            TestLogger.LogFailure(testName, msg);
+            catch (Exception ex)
+            {
+                TestLogger.LogInfo(context, $"EnsureNoStrayModal: {ex.Message}");
+            }
         }
 
         private static bool WaitUntil(Func<bool> condition, int timeoutMs = TimeoutMs)
         {
-            // ประเมินเงื่อนไขซ้ำจนเป็นจริงหรือครบเวลา; Exception ชั่วคราวจาก UIA จะถูกลองใหม่
             var sw = Stopwatch.StartNew();
             while (sw.ElapsedMilliseconds < timeoutMs)
             {
@@ -931,7 +1067,6 @@ namespace HRMITestFlaUI.Module.Organization
         }
 
         private static bool WaitForClosed(Func<AutomationElement?> finder, int timeoutMs = TimeoutMs) =>
-            // ถือว่าปิดแล้วเมื่อหา Element ไม่พบ, Element ใช้งานไม่ได้ หรือถูกซ่อน
             WaitUntil(() =>
             {
                 try
@@ -944,7 +1079,6 @@ namespace HRMITestFlaUI.Module.Organization
 
         private T? Retry<T>(Func<T?> finder, int timeoutMs = TimeoutMs) where T : class
         {
-            // เรียกค้นหาเดิมซ้ำจนพบออบเจ็กต์หรือหมดเวลา รองรับ UI ที่ยังสร้างองค์ประกอบไม่เสร็จ
             var sw = Stopwatch.StartNew();
             while (sw.ElapsedMilliseconds < timeoutMs)
             {

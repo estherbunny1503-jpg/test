@@ -15,21 +15,261 @@ namespace HRMITestFlaUI.Module.Setup
 {
     public class IncomeDeductInfoUC
     {
-        // ── ตัวแปรสำหรับเก็บออบเจ็กต์หน้าต่างหลัก, ระบบ Automation และตัวนับผลการทดสอบ (Success/Fail) ──
-        private readonly AutomationElement _mainWindow;
-        private readonly UIA3Automation _automation;
+        // =========================================================================================
+        // หมวดที่ 1: ข้อมูลการทดสอบทั้ง 5 ขั้น (Test Data)
+        // =========================================================================================
 
-        private int _totalSuccess = 0;
-        private int _totalFail = 0;
+        // --- Data Records สำหรับใช้งานในแต่ละขั้นตอน ---
+        private sealed record IncomeDeductRecord(
+            string Code,
+            string NameTh,
+            string NameEn,
+            string TypeText,
+            string TaxSectionText,
+            string? CalcMethodText,
+            decimal? Amount,
+            string? UnitText,
+            string AccountText,
+            bool CalcTax,
+            int? TaxRadioIndex,
+            decimal? FixedRatePercent,
+            bool DeductBeforeTax,
+            bool CalcSocialSecurity,
+            bool CalcProvidentFund,
+            bool CalcWelfareFund,
+            bool BaseOvertime,
+            bool BaseAbsenteeism,
+            bool BaseBrokenline,
+            bool BaseLeave,
+            bool ByOtPeriod,
+            bool ByAbsentPeriod,
+            bool ByBrokenPeriod,
+            bool ByLeavePeriod);
 
-        // ── ค่าคงที่สำหรับการตั้งค่า Timeout และข้อมูลการระบุตัวตนของฟอร์ม ──
-        private const int TimeoutMs = 6000;
+        private sealed record ValidationItem(
+            string TestCaseId,
+            string Code,
+            string NameTh,
+            string SaveBtn,
+            string[] ExpectedErrors);
+
+        private sealed record IncomeDeductEditItem(
+            string TestCaseId,
+            string ExistingCode,
+            string NewCode,
+            string NewNameTh,
+            string NewNameEn,
+            string SaveButtonName,
+            bool NeedsExplicitClose);
+
+        private sealed record DeleteItem(
+            string TargetCode,
+            string DialogBtn,
+            bool ExpectDeleted);
+
+        // [ขั้นที่ 1] ข้อมูลทดสอบการสร้างใหม่ (Add / Navigate)
+        private static readonly IncomeDeductRecord[] Step1_AddCases =
+        {
+            // 1. DED001: บัญชีเงินสด | แบบอัตราก้าวหน้า | ติ๊กถูกครบทุกช่องตาม Test Step
+            new("DED001", "เงินเดือน", "Salary",
+                TypeText: "รายได้ประจำ", TaxSectionText: "40(1)", CalcMethodText: "กำหนดเอง",
+                Amount: null, UnitText: null, AccountText: "บัญชีเงินสด",
+                CalcTax: true, TaxRadioIndex: 0, FixedRatePercent: null, DeductBeforeTax: false,
+                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
+                BaseOvertime: true, BaseAbsenteeism: true, BaseBrokenline: true, BaseLeave: true,
+                ByOtPeriod: true, ByAbsentPeriod: true, ByBrokenPeriod: true, ByLeavePeriod: true),
+
+            // 2. DED002: บัญชีเงินฝากธนาคาร | Fixed Rate 0.05% | ติ๊กถูกครบทุกช่องตาม Test Step
+            new("DED002", "ค่าเบี้ยขยัน", "Diligence Allowance",
+                TypeText: "รายได้ประจำ", TaxSectionText: "40(2)", CalcMethodText: "จำนวนคงที่",
+                Amount: 500m, UnitText: null, AccountText: "บัญชีเงินฝากธนาคาร",
+                CalcTax: true, TaxRadioIndex: 1, FixedRatePercent: 0.05m, DeductBeforeTax: false,
+                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
+                BaseOvertime: true, BaseAbsenteeism: true, BaseBrokenline: true, BaseLeave: true,
+                ByOtPeriod: true, ByAbsentPeriod: true, ByBrokenPeriod: true, ByLeavePeriod: true),
+
+            // 3. INC001: บัญชีเงินฝากธนาคาร | หักก่อนคำนวณภาษี
+            new("INC001", "หักประกันสังคม", "Social Security Deduction",
+                TypeText: "รายหักประจำ", TaxSectionText: "40(1)", CalcMethodText: "กำหนดเอง",
+                Amount: null, UnitText: null, AccountText: "บัญชีเงินฝากธนาคาร",
+                CalcTax: false, TaxRadioIndex: null, FixedRatePercent: null, DeductBeforeTax: true,
+                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
+                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
+                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
+
+            // 4. INC002: บัญชีเงินสด | จำนวนคงที่ 1000 | หักก่อนคำนวณภาษี
+            new("INC002", "หักกองทุนสำรอง", "Provident Fund Deduction",
+                TypeText: "รายหักประจำ", TaxSectionText: "40(2)", CalcMethodText: "จำนวนคงที่",
+                Amount: 1000m, UnitText: null, AccountText: "บัญชีเงินสด",
+                CalcTax: false, TaxRadioIndex: null, FixedRatePercent: null, DeductBeforeTax: true,
+                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
+                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
+                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
+
+            // 5. INC003: บัญชีเงินสด | กำหนดเอง
+            new("INC003", "โบนัสประจำปี", "Annual Bonus",
+                TypeText: "รายได้ไม่ประจำ", TaxSectionText: "40(1)", CalcMethodText: "กำหนดเอง",
+                Amount: null, UnitText: null, AccountText: "บัญชีเงินสด",
+                CalcTax: true, TaxRadioIndex: null, FixedRatePercent: null, DeductBeforeTax: false,
+                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
+                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
+                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
+
+            // 6. INC004: บัญชีเงินฝากธนาคาร | ค่าแรงรายวัน (หน่วย วัน) | Fixed Rate 0.07%
+            new("INC004", "ค่าแรงประจำวัน", "Daily Wage",
+                TypeText: "รายได้ไม่ประจำ", TaxSectionText: "40(2)", CalcMethodText: "ค่าแรงรายวัน",
+                Amount: null, UnitText: "วัน", AccountText: "บัญชีเงินฝากธนาคาร",
+                CalcTax: true, TaxRadioIndex: 1, FixedRatePercent: 0.07m, DeductBeforeTax: false,
+                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
+                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
+                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
+
+            // 7. INC005: บัญชีเงินสด | ค่าแรงรายชั่วโมง (หน่วย ชั่วโมง)
+            new("INC005", "ค่าแรงประจำชั่วโมง", "Hourly Wage",
+                TypeText: "รายได้ไม่ประจำ", TaxSectionText: "40(1)", CalcMethodText: "ค่าแรงรายชั่วโมง",
+                Amount: null, UnitText: "ชั่วโมง", AccountText: "บัญชีเงินสด",
+                CalcTax: true, TaxRadioIndex: null, FixedRatePercent: null, DeductBeforeTax: false,
+                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
+                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
+                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
+
+            // 8. INC006: บัญชีเงินฝากธนาคาร | อัตราส่วนต่อวัน (หน่วย วัน) | Fixed Rate 0.05%
+            new("INC006", "ค่าแรงเหมางาน", "Contract Wage",
+                TypeText: "รายได้ไม่ประจำ", TaxSectionText: "40(2)", CalcMethodText: "อัตราส่วนต่อวัน",
+                Amount: null, UnitText: "วัน", AccountText: "บัญชีเงินฝากธนาคาร",
+                CalcTax: true, TaxRadioIndex: 1, FixedRatePercent: 0.05m, DeductBeforeTax: false,
+                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
+                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
+                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
+
+            // 9. INC007: บัญชีเงินสด | 40(6)
+            new("INC007", "ค่าเดินทาง", "Travel Allowance",
+                TypeText: "รายได้ไม่ประจำ", TaxSectionText: "40(6)", CalcMethodText: null,
+                Amount: null, UnitText: null, AccountText: "บัญชีเงินสด",
+                CalcTax: false, TaxRadioIndex: null, FixedRatePercent: null, DeductBeforeTax: false,
+                CalcSocialSecurity: false, CalcProvidentFund: false, CalcWelfareFund: false,
+                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
+                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
+
+            // 10. INC008: บัญชีเงินฝากธนาคาร | 40(7)
+            new("INC008", "ค่าอาหาร", "Meal Allowance",
+                TypeText: "รายได้ไม่ประจำ", TaxSectionText: "40(7)", CalcMethodText: null,
+                Amount: null, UnitText: null, AccountText: "บัญชีเงินฝากธนาคาร",
+                CalcTax: false, TaxRadioIndex: null, FixedRatePercent: null, DeductBeforeTax: false,
+                CalcSocialSecurity: false, CalcProvidentFund: false, CalcWelfareFund: false,
+                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
+                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
+
+            // 11. INC009: บัญชีเงินสด | 40(8)
+            new("INC009", "เงินรางวัลพิเศษ", "Special Incentive",
+                TypeText: "รายได้ไม่ประจำ", TaxSectionText: "40(8)", CalcMethodText: null,
+                Amount: null, UnitText: null, AccountText: "บัญชีเงินสด",
+                CalcTax: false, TaxRadioIndex: null, FixedRatePercent: null, DeductBeforeTax: false,
+                CalcSocialSecurity: false, CalcProvidentFund: false, CalcWelfareFund: false,
+                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
+                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
+
+            // 12. INC010: บัญชีค่าใช้จ่าย | รายหักไม่ประจำ 40(1) | กำหนดเอง
+            new("INC010", "หักกรณีขาดงาน", "Absence Deduction",
+                TypeText: "รายหักไม่ประจำ", TaxSectionText: "40(1)", CalcMethodText: "กำหนดเอง",
+                Amount: null, UnitText: null, AccountText: "บัญชีค่าใช้จ่าย",
+                CalcTax: false, TaxRadioIndex: null, FixedRatePercent: null, DeductBeforeTax: true,
+                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
+                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
+                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
+
+            // 13. INC011: บัญชีค่าใช้จ่าย | รายหักไม่ประจำ 40(2) | จำนวนคงที่ 1500
+            new("INC011", "หักกรณีมาสาย", "Late Deduction",
+                TypeText: "รายหักไม่ประจำ", TaxSectionText: "40(2)", CalcMethodText: "จำนวนคงที่",
+                Amount: 1500m, UnitText: null, AccountText: "บัญชีค่าใช้จ่าย",
+                CalcTax: false, TaxRadioIndex: null, FixedRatePercent: null, DeductBeforeTax: true,
+                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
+                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
+                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false)
+        };
+
+        // [ขั้นที่ 2] ข้อมูลทดสอบ Validation ตอนเพิ่ม (Add Validation)
+        private static readonly ValidationItem[] Step2_AddValidationCases =
+        {
+            new("TestCase01_MissingCode", "", "เงินเดือน", "Save",
+                new[] { "รหัสรายได้ - รายหัก ไม่สามารถเป็นค่าว่าง" }),
+
+            new("TestCase02_MissingName", "DED001", "", "Save and New",
+                new[] { "ชื่อรายได้ - รายหัก ไม่สามารถเป็นค่าว่าง" }),
+
+            new("TestCase03_MissingBoth", "", "", "Save and New",
+                new[] { "รหัสรายได้ - รายหัก ไม่สามารถเป็นค่าว่าง", "ชื่อรายได้ - รายหัก ไม่สามารถเป็นค่าว่าง" }),
+
+            new("TestCase04_DuplicateCode", "INC001", "เงินเดือน", "Save",
+                new[] { "รหัสรายได้ - รายหัก ห้ามซ้ำ" }),
+
+            new("TestCase05_DuplicateName", "INC015", "เงินเดือน", "Save and Close",
+                new[] { "ชื่อรายได้ - รายหัก ห้ามซ้ำ" })
+        };
+
+        // [ขั้นที่ 3] ข้อมูลทดสอบการแก้ไขข้อมูล (Edit Records)
+        private static readonly IncomeDeductEditItem[] Step3_EditCases =
+        {
+            new(
+                "TestCase06_EditRow1",
+                "DED001", "DED001-EDIT",
+                "เงินเดือนพื้นฐาน",
+                "Basic Salary",
+                "Save",
+                true
+                ),
+            new(
+                "TestCase07_EditRow3",
+                "INC001",
+                "INC001-EDIT",
+                "หักผู้มีประกันสังคม",
+                "Deduct Insured Person",
+                "Save and Close",
+                false
+                )
+        };
+
+        // [ขั้นที่ 4] ข้อมูลทดสอบ Validation ตอนแก้ไข (Edit Validation)
+        private const string EditTargetRow = "DED001-EDIT";
+        private static readonly ValidationItem[] Step4_EditValidationCases =
+        {
+            new("TestCase08_EditValidation_MissingCode", "", "เงินเดือนพื้นฐาน", "Save",
+                new[] { "รหัสรายได้ - รายหัก ไม่สามารถเป็นค่าว่าง" }),
+
+            new("TestCase08_EditValidation_MissingName", "DED001-EDIT", "", "Save and New",
+                new[] { "ชื่อรายได้ - รายหัก ไม่สามารถเป็นค่าว่าง" }),
+
+            new("TestCase08_EditValidation_MissingBoth", "", "", "Save and New",
+                new[] { "รหัสรายได้ - รายหัก ไม่สามารถเป็นค่าว่าง", "ชื่อรายได้ - รายหัก ไม่สามารถเป็นค่าว่าง" }),
+
+            new("TestCase08_EditValidation_DuplicateCode", "INC001-EDIT", "เงินเดือนพื้นฐาน", "Save",
+                new[] { "รหัสรายได้ - รายหัก ห้ามซ้ำ" }),
+
+            new("TestCase08_EditValidation_DuplicateName", "DED001-EDIT", "หักผู้มีประกันสังคม", "Save and Close",
+                new[] { "ชื่อรายได้ - รายหัก ห้ามซ้ำ" })
+        };
+
+        // [ขั้นที่ 5] ข้อมูลทดสอบการลบข้อมูล (Delete Records)
+        private static readonly DeleteItem[] Step5_DeleteCases =
+        {
+            new("INC010", "Yes", true),
+            new("INC011", "No", false)
+        };
+
+
+        // =========================================================================================
+        // หมวดที่ 2: ส่วนที่ขึ้นกับหน้าจอนั้นๆ (Screen-Specific Implementation)
+        // **เมื่อเปลี่ยนไปทำหน้าจออื่น ต้องมาแก้ไขค่าและเมทอดในส่วนนี้ทั้งหมด**
+        // =========================================================================================
+
+        // 2.1 Locator & Mappings ประจำหน้าจอ
+        private const string MenuName = "กำหนดรายได้ - รายหัก";
+        private const string ScreenLogName = "IncomeDeductInfoUC";
         private const string FormId = "IncomeDeductInfoUC";
         private const string FormTitle = "กำหนดรายได้ - รายหัก";
-
         private const string GeneralTabId = "devTabPgGeneral";
 
-        // ── Automation IDs ของคอนโทรลบนหน้าจอ ──
+        // 2.2 ฟิลด์ Input ประจำหน้าจอ
         private const string IdCode = "devtxtIncomeDeductCode";
         private const string IdName = "devtxtIncomeDeductName";
         private const string IdNameEng = "devtxtlIncomeDeductNameEng";
@@ -61,110 +301,25 @@ namespace HRMITestFlaUI.Module.Setup
         private const string IdChkByBrokenPeriod = "devChkByBrokenperiod";
         private const string IdChkByLeavePeriod = "devChkByLeaveperiod";
 
-        // ── กลุ่มมาตราภาษีที่มีเงื่อนไขจำกัด ไม่ต้องตั้งค่าเพิ่มเติม ──
         private static readonly HashSet<string> RestrictedTaxSections = new(StringComparer.OrdinalIgnoreCase)
         {
             "40(6)", "40(7)", "40(8)"
         };
 
-        public IncomeDeductInfoUC(AutomationElement mainWindow, UIA3Automation automation)
-        {
-            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
-            _automation = automation ?? throw new ArgumentNullException(nameof(automation));
-        }
-
-        // ── Data Model สำหรับเก็บข้อมูลการทดสอบรหัสรายได้-รายหัก ──
-        private sealed record IncomeDeductRecord(
-            string Code,
-            string NameTh,
-            string NameEn,
-            string TypeText,
-            string TaxSectionText,
-            string? CalcMethodText,
-            decimal? Amount,
-            string? UnitText,
-            string AccountText,
-            bool CalcTax,
-            int? TaxRadioIndex,
-            decimal? FixedRatePercent,
-            bool DeductBeforeTax,
-            bool CalcSocialSecurity,
-            bool CalcProvidentFund,
-            bool CalcWelfareFund,
-            bool BaseOvertime,
-            bool BaseAbsenteeism,
-            bool BaseBrokenline,
-            bool BaseLeave,
-            bool ByOtPeriod,
-            bool ByAbsentPeriod,
-            bool ByBrokenPeriod,
-            bool ByLeavePeriod);
-
-        // -------------------------------------------------------------
-        // * Navigation & Search System *
-        // -------------------------------------------------------------
-        private bool TryOpenIncomeDeductMenu(string stage)
-        {
-            try
-            {
-                var searchBox = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("baritemSearch"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit)), 4000)
-                                ?? throw new Exception("ไม่พบช่องค้นหา baritemSearch");
-
-                searchBox.Focus();
-                string searchKeyword = FormTitle;
-
-                if (searchBox.Patterns.Value.IsSupported)
-                    searchBox.Patterns.Value.Pattern.SetValue(searchKeyword);
-                else
-                    Keyboard.Type(searchKeyword);
-
-                var searchBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("barChkSearch"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Find")), 4000)
-                                ?? throw new Exception("ไม่พบปุ่มค้นหา barChkSearch");
-
-                searchBtn.Click();
-
-                var menuResult = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName(searchKeyword))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 1"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 26")), 4000)
-                                 ?? throw new Exception("ไม่พบผลลัพธ์เมนูจากการค้นหา");
-
-                menuResult.Focus();
-                menuResult.Click();
-                Keyboard.Press(VirtualKeyShort.ENTER);
-
-                var newBtn = Retry(() =>
-                {
-                    var btn = _mainWindow.FindFirstDescendant(cf => cf.ByName("New"));
-                    return (btn != null && btn.Properties.IsEnabled.ValueOrDefault) ? btn : null;
-                }, TimeoutMs);
-
-                return newBtn != null;
-            }
-            catch (Exception ex)
-            {
-                LogFailureCounted(stage, $"ค้นหาและเปิดหน้าจอไม่สำเร็จ: {ex.Message}");
-                return false;
-            }
-        }
-
-        // -------------------------------------------------------------
-        // * 1. Open & New Tests *
-        // -------------------------------------------------------------
+        /// <summary>
+        /// ขั้นที่ 1: เปิดหน้าจอและกรอกข้อมูลสร้างใหม่
+        /// </summary>
         public void NavigateToIncomeDeductInfoUC()
         {
             string stageName = "TestCase00_AddIncomeDeductData";
-            TestLogger.LogInfo("IncomeDeductInfoUC", "เริ่มทดสอบหน้าจอ กำหนดรายได้ - รายหัก");
+            TestLogger.LogInfo(ScreenLogName, "เริ่มทดสอบหน้าจอ กำหนดรายได้ - รายหัก");
 
             if (!TryOpenIncomeDeductMenu(stageName)) return;
 
-            var items = BuildNewTestRecords();
             Window? form = null;
-
-            for (int i = 0; i < items.Count; i++)
+            for (int i = 0; i < Step1_AddCases.Length; i++)
             {
-                var item = items[i];
+                var item = Step1_AddCases[i];
                 string testName = $"{stageName}_{item.Code}";
 
                 try
@@ -175,7 +330,7 @@ namespace HRMITestFlaUI.Module.Setup
                     FillIncomeDeductFieldsFull(form, context, item);
 
                     string saveButtonName = (i == 0) ? "Save"
-                                          : (i == items.Count - 1) ? "Save and Close"
+                                          : (i == Step1_AddCases.Length - 1) ? "Save and Close"
                                           : "Save and New";
 
                     bool saveSuccess = TrySaveAndHandleDuplicate(form, testName, item.Code, saveButtonName);
@@ -221,129 +376,9 @@ namespace HRMITestFlaUI.Module.Setup
             }
         }
 
-        private static List<IncomeDeductRecord> BuildNewTestRecords() => new()
-        {
-            // 1. DED001: บัญชีเงินสด | แบบอัตราก้าวหน้า | ติ๊กถูกครบทุกช่องตาม Test Step
-            new IncomeDeductRecord("DED001", "เงินเดือน", "Salary",
-                TypeText: "รายได้ประจำ", TaxSectionText: "40(1)", CalcMethodText: "กำหนดเอง",
-                Amount: null, UnitText: null, AccountText: "บัญชีเงินสด",
-                CalcTax: true, TaxRadioIndex: 0, FixedRatePercent: null, DeductBeforeTax: false,
-                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
-                BaseOvertime: true, BaseAbsenteeism: true, BaseBrokenline: true, BaseLeave: true,
-                ByOtPeriod: true, ByAbsentPeriod: true, ByBrokenPeriod: true, ByLeavePeriod: true),
-
-            // 2. DED002: บัญชีเงินฝากธนาคาร | Fixed Rate 0.05% | ติ๊กถูกครบทุกช่องตาม Test Step
-            new IncomeDeductRecord("DED002", "ค่าเบี้ยขยัน", "Diligence Allowance",
-                TypeText: "รายได้ประจำ", TaxSectionText: "40(2)", CalcMethodText: "จำนวนคงที่",
-                Amount: 500m, UnitText: null, AccountText: "บัญชีเงินฝากธนาคาร",
-                CalcTax: true, TaxRadioIndex: 1, FixedRatePercent: 0.05m, DeductBeforeTax: false,
-                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
-                BaseOvertime: true, BaseAbsenteeism: true, BaseBrokenline: true, BaseLeave: true,
-                ByOtPeriod: true, ByAbsentPeriod: true, ByBrokenPeriod: true, ByLeavePeriod: true),
-
-            // 3. INC001: บัญชีเงินฝากธนาคาร | หักก่อนคำนวณภาษี
-            new IncomeDeductRecord("INC001", "หักประกันสังคม", "Social Security Deduction",
-                TypeText: "รายหักประจำ", TaxSectionText: "40(1)", CalcMethodText: "กำหนดเอง",
-                Amount: null, UnitText: null, AccountText: "บัญชีเงินฝากธนาคาร",
-                CalcTax: false, TaxRadioIndex: null, FixedRatePercent: null, DeductBeforeTax: true,
-                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
-                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
-                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
-
-            // 4. INC002: บัญชีเงินสด | จำนวนคงที่ 1000 | หักก่อนคำนวณภาษี
-            new IncomeDeductRecord("INC002", "หักกองทุนสำรอง", "Provident Fund Deduction",
-                TypeText: "รายหักประจำ", TaxSectionText: "40(2)", CalcMethodText: "จำนวนคงที่",
-                Amount: 1000m, UnitText: null, AccountText: "บัญชีเงินสด",
-                CalcTax: false, TaxRadioIndex: null, FixedRatePercent: null, DeductBeforeTax: true,
-                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
-                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
-                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
-
-            // 5. INC003: บัญชีเงินสด | กำหนดเอง
-            new IncomeDeductRecord("INC003", "โบนัสประจำปี", "Annual Bonus",
-                TypeText: "รายได้ไม่ประจำ", TaxSectionText: "40(1)", CalcMethodText: "กำหนดเอง",
-                Amount: null, UnitText: null, AccountText: "บัญชีเงินสด",
-                CalcTax: true, TaxRadioIndex: null, FixedRatePercent: null, DeductBeforeTax: false,
-                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
-                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
-                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
-
-            // 6. INC004: บัญชีเงินฝากธนาคาร | ค่าแรงรายวัน (หน่วย วัน) | Fixed Rate 0.07%
-            new IncomeDeductRecord("INC004", "ค่าแรงประจำวัน", "Daily Wage",
-                TypeText: "รายได้ไม่ประจำ", TaxSectionText: "40(2)", CalcMethodText: "ค่าแรงรายวัน",
-                Amount: null, UnitText: "วัน", AccountText: "บัญชีเงินฝากธนาคาร",
-                CalcTax: true, TaxRadioIndex: 1, FixedRatePercent: 0.07m, DeductBeforeTax: false,
-                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
-                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
-                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
-
-            // 7. INC005: บัญชีเงินสด | ค่าแรงรายชั่วโมง (หน่วย ชั่วโมง)
-            new IncomeDeductRecord("INC005", "ค่าแรงประจำชั่วโมง", "Hourly Wage",
-                TypeText: "รายได้ไม่ประจำ", TaxSectionText: "40(1)", CalcMethodText: "ค่าแรงรายชั่วโมง",
-                Amount: null, UnitText: "ชั่วโมง", AccountText: "บัญชีเงินสด",
-                CalcTax: true, TaxRadioIndex: null, FixedRatePercent: null, DeductBeforeTax: false,
-                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
-                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
-                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
-
-            // 8. INC006: บัญชีเงินฝากธนาคาร | อัตราส่วนต่อวัน (หน่วย วัน) | Fixed Rate 0.05%
-            new IncomeDeductRecord("INC006", "ค่าแรงเหมางาน", "Contract Wage",
-                TypeText: "รายได้ไม่ประจำ", TaxSectionText: "40(2)", CalcMethodText: "อัตราส่วนต่อวัน",
-                Amount: null, UnitText: "วัน", AccountText: "บัญชีเงินฝากธนาคาร",
-                CalcTax: true, TaxRadioIndex: 1, FixedRatePercent: 0.05m, DeductBeforeTax: false,
-                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
-                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
-                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
-
-            // 9. INC007: บัญชีเงินสด | 40(6)
-            new IncomeDeductRecord("INC007", "ค่าเดินทาง", "Travel Allowance",
-                TypeText: "รายได้ไม่ประจำ", TaxSectionText: "40(6)", CalcMethodText: null,
-                Amount: null, UnitText: null, AccountText: "บัญชีเงินสด",
-                CalcTax: false, TaxRadioIndex: null, FixedRatePercent: null, DeductBeforeTax: false,
-                CalcSocialSecurity: false, CalcProvidentFund: false, CalcWelfareFund: false,
-                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
-                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
-
-            // 10. INC008: บัญชีเงินฝากธนาคาร | 40(7)
-            new IncomeDeductRecord("INC008", "ค่าอาหาร", "Meal Allowance",
-                TypeText: "รายได้ไม่ประจำ", TaxSectionText: "40(7)", CalcMethodText: null,
-                Amount: null, UnitText: null, AccountText: "บัญชีเงินฝากธนาคาร",
-                CalcTax: false, TaxRadioIndex: null, FixedRatePercent: null, DeductBeforeTax: false,
-                CalcSocialSecurity: false, CalcProvidentFund: false, CalcWelfareFund: false,
-                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
-                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
-
-            // 11. INC009: บัญชีเงินสด | 40(8)
-            new IncomeDeductRecord("INC009", "เงินรางวัลพิเศษ", "Special Incentive",
-                TypeText: "รายได้ไม่ประจำ", TaxSectionText: "40(8)", CalcMethodText: null,
-                Amount: null, UnitText: null, AccountText: "บัญชีเงินสด",
-                CalcTax: false, TaxRadioIndex: null, FixedRatePercent: null, DeductBeforeTax: false,
-                CalcSocialSecurity: false, CalcProvidentFund: false, CalcWelfareFund: false,
-                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
-                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
-
-            // 12. INC010: บัญชีค่าใช้จ่าย | รายหักไม่ประจำ 40(1) | กำหนดเอง
-            new IncomeDeductRecord("INC010", "หักกรณีขาดงาน", "Absence Deduction",
-                TypeText: "รายหักไม่ประจำ", TaxSectionText: "40(1)", CalcMethodText: "กำหนดเอง",
-                Amount: null, UnitText: null, AccountText: "บัญชีค่าใช้จ่าย",
-                CalcTax: false, TaxRadioIndex: null, FixedRatePercent: null, DeductBeforeTax: true,
-                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
-                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
-                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false),
-
-            // 13. INC011: บัญชีค่าใช้จ่าย | รายหักไม่ประจำ 40(2) | จำนวนคงที่ 1500
-            new IncomeDeductRecord("INC011", "หักกรณีมาสาย", "Late Deduction",
-                TypeText: "รายหักไม่ประจำ", TaxSectionText: "40(2)", CalcMethodText: "จำนวนคงที่",
-                Amount: 1500m, UnitText: null, AccountText: "บัญชีค่าใช้จ่าย",
-                CalcTax: false, TaxRadioIndex: null, FixedRatePercent: null, DeductBeforeTax: true,
-                CalcSocialSecurity: true, CalcProvidentFund: true, CalcWelfareFund: true,
-                BaseOvertime: false, BaseAbsenteeism: false, BaseBrokenline: false, BaseLeave: false,
-                ByOtPeriod: false, ByAbsentPeriod: false, ByBrokenPeriod: false, ByLeavePeriod: false)
-        };
-
-        // -------------------------------------------------------------
-        // * 2. Validation Tests *
-        // -------------------------------------------------------------
+        /// <summary>
+        /// ขั้นที่ 2: รัน Validation ตอนสร้างข้อมูลใหม่
+        /// </summary>
         public void RunAllValidationTests()
         {
             string stageName = "TestCase01-08_Validation";
@@ -360,69 +395,57 @@ namespace HRMITestFlaUI.Module.Setup
 
             var context = GetGeneralTab(form);
 
-            RunValidationStep("TestCase01_MissingCode", () =>
-                FillAndSaveThenAssert(context, form, "", "เงินเดือน", "Save",
-                    "TestCase01_MissingCode", "รหัสรายได้ - รายหัก ไม่สามารถเป็นค่าว่าง"));
-
-            RunValidationStep("TestCase02_MissingName", () =>
-                FillAndSaveThenAssert(context, form, "DED001", "", "Save and New",
-                    "TestCase02_MissingName", "ชื่อรายได้ - รายหัก ไม่สามารถเป็นค่าว่าง"));
-
-            RunValidationStep("TestCase03_MissingBoth", () =>
-                FillAndSaveThenAssert(context, form, "", "", "Save and New",
-                    "TestCase03_MissingBoth",
-                    "รหัสรายได้ - รายหัก ไม่สามารถเป็นค่าว่าง",
-                    "ชื่อรายได้ - รายหัก ไม่สามารถเป็นค่าว่าง"));
-
-            RunValidationStep("TestCase04_DuplicateCode", () =>
-                FillAndSaveThenAssert(context, form, "INC001", "เงินเดือน", "Save",
-                    "TestCase04_DuplicateCode", "รหัสรายได้ - รายหัก ห้ามซ้ำ"));
-
-            RunValidationStep("TestCase05_DuplicateName", () =>
+            foreach (var testCase in Step2_AddValidationCases.Take(4))
             {
-                FillAndSaveThenAssert(context, form, "INC015", "เงินเดือน", "Save and Close",
-                    "TestCase05_DuplicateName", "ชื่อรายได้ - รายหัก ห้ามซ้ำ");
-                AssertFormStillOpen(form, "TestCase05_DuplicateName");
+                RunValidationStep(testCase.TestCaseId, () =>
+                    FillAndSaveThenAssert(context, form, testCase.Code, testCase.NameTh, testCase.SaveBtn,
+                        testCase.TestCaseId, testCase.ExpectedErrors));
+            }
+
+            var dupNameCase = Step2_AddValidationCases[4];
+            RunValidationStep(dupNameCase.TestCaseId, () =>
+            {
+                FillAndSaveThenAssert(context, form, dupNameCase.Code, dupNameCase.NameTh, dupNameCase.SaveBtn,
+                    dupNameCase.TestCaseId, dupNameCase.ExpectedErrors);
+                AssertFormStillOpen(form, dupNameCase.TestCaseId);
             });
 
-            RunValidationStep("TestCase05_DuplicateName_Close_Yes", () =>
+            RunValidationStep($"{dupNameCase.TestCaseId}_Close_Yes", () =>
             {
-                ClickCloseAndHandleDialog(form, "Yes", "TestCase05_DuplicateName_Close_Yes");
-                AssertWarningAndFormOpen(form, "ชื่อรายได้ - รายหัก ห้ามซ้ำ", "TestCase05_DuplicateName_Close_Yes");
+                ClickCloseAndHandleDialog(form, "Yes", $"{dupNameCase.TestCaseId}_Close_Yes");
+                AssertWarningAndFormOpen(form, "ชื่อรายได้ - รายหัก ห้ามซ้ำ", $"{dupNameCase.TestCaseId}_Close_Yes");
             });
 
-            RunValidationStep("TestCase05_DuplicateName_Close_Cancel", () =>
+            RunValidationStep($"{dupNameCase.TestCaseId}_Close_Cancel", () =>
             {
-                ClickCloseAndHandleDialog(form, "Cancel", "TestCase05_DuplicateName_Close_Cancel");
-                AssertFormStillOpen(form, "TestCase05_DuplicateName_Close_Cancel");
+                ClickCloseAndHandleDialog(form, "Cancel", $"{dupNameCase.TestCaseId}_Close_Cancel");
+                AssertFormStillOpen(form, $"{dupNameCase.TestCaseId}_Close_Cancel");
             });
 
-            RunValidationStep("TestCase05_DuplicateName_Close_No", () =>
+            RunValidationStep($"{dupNameCase.TestCaseId}_Close_No", () =>
             {
-                ClickCloseAndHandleDialog(form, "No", "TestCase05_DuplicateName_Close_No");
-                AssertFormClosed(form, "TestCase05_DuplicateName_Close_No");
+                ClickCloseAndHandleDialog(form, "No", $"{dupNameCase.TestCaseId}_Close_No");
+                AssertFormClosed(form, $"{dupNameCase.TestCaseId}_Close_No");
             });
         }
 
-        // -------------------------------------------------------------
-        // * 3. Edit Tests *
-        // -------------------------------------------------------------
+        /// <summary>
+        /// ขั้นที่ 3: เลือกแก้ไขรายการในตาราง
+        /// </summary>
         public void RunEditTests()
         {
             var results = new List<(string TestName, string ExistingCode, string NewCode)>();
 
-            TryAdd(results, PerformEdit("TestCase06_EditRow1", existingCode: "DED001",
-                newCode: "DED001-EDIT", newNameTh: "เงินเดือนพื้นฐาน", newNameEn: "Basic Salary",
-                saveButtonName: "Save", needsExplicitClose: true));
-
-            TryAdd(results, PerformEdit("TestCase07_EditRow3", existingCode: "INC001",
-                newCode: "INC001-EDIT", newNameTh: "หักผู้มีประกันสังคม", newNameEn: "Deduct Insured Person",
-                saveButtonName: "Save and Close", needsExplicitClose: false));
+            foreach (var item in Step3_EditCases)
+            {
+                TryAdd(results, PerformEdit(item.TestCaseId, item.ExistingCode,
+                    item.NewCode, item.NewNameTh, item.NewNameEn, item.SaveButtonName, item.NeedsExplicitClose));
+            }
         }
 
-        // -------------------------------------------------------------
-        // * 4. Edit Validation Tests *
-        // -------------------------------------------------------------
+        /// <summary>
+        /// ขั้นที่ 4: รัน Validation ตอนแก้ไขข้อมูล
+        /// </summary>
         public void RunEditValidationTests()
         {
             string baseTestName = "TestCase08_EditValidation";
@@ -430,7 +453,7 @@ namespace HRMITestFlaUI.Module.Setup
             try
             {
                 RefreshGrid();
-                form = ClickRowAndOpenEditForm("DED001-EDIT", baseTestName);
+                form = ClickRowAndOpenEditForm(EditTargetRow, baseTestName);
             }
             catch (Exception ex)
             {
@@ -445,137 +468,78 @@ namespace HRMITestFlaUI.Module.Setup
 
             if (isCodeEditable)
             {
-                RunValidationStep($"{baseTestName}_MissingCode", () =>
-                    FillAndSaveThenAssert(context, form, "", "เงินเดือนพื้นฐาน", "Save",
-                        $"{baseTestName}_MissingCode", "รหัสรายได้ - รายหัก ไม่สามารถเป็นค่าว่าง"));
+                RunValidationStep(Step4_EditValidationCases[0].TestCaseId, () =>
+                    FillAndSaveThenAssert(context, form, Step4_EditValidationCases[0].Code, Step4_EditValidationCases[0].NameTh, Step4_EditValidationCases[0].SaveBtn,
+                        Step4_EditValidationCases[0].TestCaseId, Step4_EditValidationCases[0].ExpectedErrors));
             }
             else
             {
-                LogSuccessCounted($"{baseTestName}_MissingCode", "ช่องรหัสถูกล็อก (Read-Only) ในโหมดแก้ไข");
+                LogSuccessCounted(Step4_EditValidationCases[0].TestCaseId, "ช่องรหัสถูกล็อก (Read-Only) ในโหมดแก้ไข");
             }
 
-            RunValidationStep($"{baseTestName}_MissingName", () =>
-                FillAndSaveThenAssert(context, form, isCodeEditable ? "DED001-EDIT" : null, "", "Save and New",
-                    $"{baseTestName}_MissingName", "ชื่อรายได้ - รายหัก ไม่สามารถเป็นค่าว่าง"));
+            RunValidationStep(Step4_EditValidationCases[1].TestCaseId, () =>
+                FillAndSaveThenAssert(context, form, isCodeEditable ? Step4_EditValidationCases[1].Code : null, Step4_EditValidationCases[1].NameTh, Step4_EditValidationCases[1].SaveBtn,
+                    Step4_EditValidationCases[1].TestCaseId, Step4_EditValidationCases[1].ExpectedErrors));
 
             if (isCodeEditable)
             {
-                RunValidationStep($"{baseTestName}_MissingBoth", () =>
-                    FillAndSaveThenAssert(context, form, "", "", "Save and New",
-                        $"{baseTestName}_MissingBoth",
-                        "รหัสรายได้ - รายหัก ไม่สามารถเป็นค่าว่าง",
-                        "ชื่อรายได้ - รายหัก ไม่สามารถเป็นค่าว่าง"));
+                RunValidationStep(Step4_EditValidationCases[2].TestCaseId, () =>
+                    FillAndSaveThenAssert(context, form, Step4_EditValidationCases[2].Code, Step4_EditValidationCases[2].NameTh, Step4_EditValidationCases[2].SaveBtn,
+                        Step4_EditValidationCases[2].TestCaseId, Step4_EditValidationCases[2].ExpectedErrors));
 
-                RunValidationStep($"{baseTestName}_DuplicateCode", () =>
-                {
-                    string dupCode = "INC001-EDIT";
-                    FillAndSaveThenAssert(context, form, dupCode, "เงินเดือนพื้นฐาน", "Save",
-                        $"{baseTestName}_DuplicateCode", "รหัสรายได้ - รายหัก ห้ามซ้ำ");
-                });
+                RunValidationStep(Step4_EditValidationCases[3].TestCaseId, () =>
+                    FillAndSaveThenAssert(context, form, Step4_EditValidationCases[3].Code, Step4_EditValidationCases[3].NameTh, Step4_EditValidationCases[3].SaveBtn,
+                        Step4_EditValidationCases[3].TestCaseId, Step4_EditValidationCases[3].ExpectedErrors));
             }
             else
             {
-                LogSuccessCounted($"{baseTestName}_MissingBoth", "ช่องรหัสถูกล็อก (Read-Only) ในโหมดแก้ไข");
-                LogSuccessCounted($"{baseTestName}_DuplicateCode", "ช่องรหัสถูกล็อก ไม่สามารถแก้ไขรหัสให้ซ้ำได้");
+                LogSuccessCounted(Step4_EditValidationCases[2].TestCaseId, "ช่องรหัสถูกล็อก (Read-Only) ในโหมดแก้ไข");
+                LogSuccessCounted(Step4_EditValidationCases[3].TestCaseId, "ช่องรหัสถูกล็อก ไม่สามารถแก้ไขรหัสให้ซ้ำได้");
             }
 
-            string subCase = $"{baseTestName}_DuplicateName";
-            RunValidationStep(subCase, () =>
+            var dupNameCase = Step4_EditValidationCases[4];
+            RunValidationStep(dupNameCase.TestCaseId, () =>
             {
-                FillAndSaveThenAssert(context, form, isCodeEditable ? "DED001-EDIT" : null, "หักผู้มีประกันสังคม", "Save and Close",
-                    subCase, "ชื่อรายได้ - รายหัก ห้ามซ้ำ");
-                AssertFormStillOpen(form, subCase);
+                FillAndSaveThenAssert(context, form, isCodeEditable ? dupNameCase.Code : null, dupNameCase.NameTh, dupNameCase.SaveBtn,
+                    dupNameCase.TestCaseId, dupNameCase.ExpectedErrors);
+                AssertFormStillOpen(form, dupNameCase.TestCaseId);
             });
 
-            RunValidationStep($"{subCase}_Close_Yes", () =>
+            RunValidationStep($"{dupNameCase.TestCaseId}_Close_Yes", () =>
             {
-                ClickCloseAndHandleDialog(form, "Yes", $"{subCase}_Close_Yes");
-                AssertWarningAndFormOpen(form, "ชื่อรายได้ - รายหัก ห้ามซ้ำ", $"{subCase}_Close_Yes");
+                ClickCloseAndHandleDialog(form, "Yes", $"{dupNameCase.TestCaseId}_Close_Yes");
+                AssertWarningAndFormOpen(form, "ชื่อรายได้ - รายหัก ห้ามซ้ำ", $"{dupNameCase.TestCaseId}_Close_Yes");
             });
 
-            RunValidationStep($"{subCase}_Close_Cancel", () =>
+            RunValidationStep($"{dupNameCase.TestCaseId}_Close_Cancel", () =>
             {
-                ClickCloseAndHandleDialog(form, "Cancel", $"{subCase}_Close_Cancel");
-                AssertFormStillOpen(form, $"{subCase}_Close_Cancel");
+                ClickCloseAndHandleDialog(form, "Cancel", $"{dupNameCase.TestCaseId}_Close_Cancel");
+                AssertFormStillOpen(form, $"{dupNameCase.TestCaseId}_Close_Cancel");
             });
 
-            RunValidationStep($"{subCase}_Close_No", () =>
+            RunValidationStep($"{dupNameCase.TestCaseId}_Close_No", () =>
             {
-                ClickCloseAndHandleDialog(form, "No", $"{subCase}_Close_No");
-                AssertFormClosed(form, $"{subCase}_Close_No");
+                ClickCloseAndHandleDialog(form, "No", $"{dupNameCase.TestCaseId}_Close_No");
+                AssertFormClosed(form, $"{dupNameCase.TestCaseId}_Close_No");
             });
 
             LogSuccessCounted(baseTestName, "รัน Validation Edit ครบทุกเคสแล้ว");
         }
 
-        // -------------------------------------------------------------
-        // * 5. Delete Tests (ลบ INC010 และ INC011) *
-        // -------------------------------------------------------------
+        /// <summary>
+        /// ขั้นที่ 5: ทดสอบการลบรายการในตาราง
+        /// </summary>
         public void RunDeleteTests()
         {
             string baseTestName = "TestCase09_Delete";
 
-            RunDeleteCaseByCode(baseTestName, "INC010", confirmButton: "Yes", expectDeleted: true);
-            RunDeleteCaseByCode(baseTestName, "INC011", confirmButton: "No", expectDeleted: false);
+            foreach (var testCase in Step5_DeleteCases)
+            {
+                RunDeleteCaseByCode(baseTestName, testCase.TargetCode, testCase.DialogBtn, testCase.ExpectDeleted);
+            }
 
             LogSuccessCounted(baseTestName, "ทดสอบ Delete ครบทุกเคส");
-            TestLogger.LogInfo("IncomeDeductInfoUC", $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
-        }
-
-        private void RunDeleteCaseByCode(string baseTestName, string targetCode, string confirmButton, bool expectDeleted)
-        {
-            string testName = $"{baseTestName}_{targetCode}_{confirmButton}";
-            try
-            {
-                RefreshGrid();
-
-                var row = Retry(() => FindElementMatchingValue(targetCode), timeoutMs: 5000)
-                          ?? throw new Exception($"หาแถวรหัส '{targetCode}' บนตารางหลักไม่เจอ");
-
-                row.Focus();
-                ClickElementByMouse(row);
-
-                var deleteButton = Retry(() =>
-                {
-                    var btn = _mainWindow.FindFirstDescendant(cf => cf.ByName("Delete"));
-                    return (btn != null && btn.Properties.IsEnabled.ValueOrDefault) ? btn : null;
-                }, 3000) ?? throw new Exception("หาปุ่ม Delete ไม่เจอ หรือปุ่มยังไม่เปิดใช้งาน");
-
-                ClickElementByMouse(deleteButton);
-
-                AutomationElement? confirmDialog = FindAlertDialog();
-                if (confirmDialog == null) throw new Exception("ไม่พบ Pop-up ยืนยันการลบ");
-
-                ClickDialogButton(confirmDialog, confirmButton, "ยืนยันการลบ");
-                WaitForClosed(() => confirmDialog);
-
-                RefreshGrid();
-
-                bool stillExists = VerifyRecordExistsInGrid(targetCode, timeoutMs: 3000, refreshGrid: false);
-
-                if (expectDeleted)
-                {
-                    if (stillExists)
-                    {
-                        LogFailureCounted(testName, $"'{targetCode}' ลบข้อมูลไม่สำเร็จ");
-                        throw new Exception($"'{targetCode}' ลบข้อมูลไม่สำเร็จ");
-                    }
-                    LogSuccessCounted(testName, $"'{targetCode}' ถูกลบสำเร็จ");
-                }
-                else
-                {
-                    if (!stillExists)
-                    {
-                        LogFailureCounted(testName, $"'{targetCode}' ลบข้อมูลผิดพลาด");
-                        throw new Exception($"'{targetCode}' ลบข้อมูลผิดพลาด");
-                    }
-                    LogSuccessCounted(testName, $"'{targetCode}' ข้อมูลยังไม่ถูกลบ");
-                }
-            }
-            catch (Exception ex)
-            {
-                LogFailureCounted(testName, $"ลบ '{targetCode}' ไม่สำเร็จ: {ex.Message}");
-            }
+            TestLogger.LogInfo(ScreenLogName, $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
         }
 
         public void RunAllTestSteps()
@@ -587,55 +551,7 @@ namespace HRMITestFlaUI.Module.Setup
             RunDeleteTests();
         }
 
-        // -------------------------------------------------------------
-        // * Helpers & Field Actions *
-        // -------------------------------------------------------------
-        private void RunValidationStep(string testName, Action step)
-        {
-            try { step(); }
-            catch (Exception ex) { LogFailureCounted(testName, $"ไม่ผ่าน: {ex.Message}"); }
-        }
-
-        private static void TryAdd(List<(string, string, string)> list, (string, string, string)? item)
-        {
-            if (item.HasValue) list.Add(item.Value);
-        }
-
-        private (string TestName, string ExistingCode, string NewCode)? PerformEdit(string testName, string existingCode,
-            string newCode, string newNameTh, string newNameEn, string saveButtonName, bool needsExplicitClose)
-        {
-            try
-            {
-                Window form = ClickRowAndOpenEditForm(existingCode, testName);
-                var context = GetGeneralTab(form);
-
-                FillIncomeDeductBasicFields(context, newCode, newNameTh, newNameEn);
-
-                if (!TrySaveAndHandleDuplicate(form, testName, newCode, saveButtonName))
-                    return null;
-
-                if (needsExplicitClose)
-                {
-                    ClickFormCloseButton(form);
-                }
-
-                WaitForClosed(() => FindOpenIncomeDeductForm());
-                RefreshGrid();
-
-                if (VerifyRecordExistsInGrid(newCode, refreshGrid: false))
-                    LogSuccessCounted(testName, $"แก้ไข '{existingCode}' เป็น '{newCode}' สำเร็จ (พบในตารางหลัก)");
-                else
-                    LogFailureCounted(testName, $"แก้ไข '{existingCode}' เป็น '{newCode}' แล้วแต่ไม่พบในตารางหลัก");
-
-                return (testName, existingCode, newCode);
-            }
-            catch (Exception ex)
-            {
-                LogFailureCounted(testName, $"แก้ไข '{existingCode}' ไม่สำเร็จ: {ex.Message}");
-                return null;
-            }
-        }
-
+        // --- Custom Mapping & Control Logic ประจำหน้าจอ IncomeDeductInfoUC ---
         private void FillIncomeDeductBasicFields(AutomationElement context, string code, string nameTh, string nameEn)
         {
             FillTextBox(context, IdCode, code);
@@ -660,7 +576,6 @@ namespace HRMITestFlaUI.Module.Setup
 
             SelectAccount(form, r.AccountText);
 
-            // เมื่อกรอกฟิลด์ด้านบนครบ จึงทำการติ๊ก Checkbox ป้องกันไม่ให้ค่าโดน Event ของโปรแกรมรีเซ็ต
             if (!IsRestrictedTaxSection(r.TaxSectionText))
             {
                 ApplyTaxSettings(form, context, r);
@@ -718,16 +633,6 @@ namespace HRMITestFlaUI.Module.Setup
                 Keyboard.Release(VirtualKeyShort.ESCAPE);
             }
             catch { }
-        }
-
-        private void ClickPickerEdgeButton(AutomationElement pickerField)
-        {
-            var rect = pickerField.BoundingRectangle;
-            int clickX = rect.Right - 12;
-            int clickY = rect.Top + (rect.Height / 2);
-
-            Mouse.MoveTo(new Point(clickX, clickY));
-            Mouse.Click(MouseButton.Left);
         }
 
         private void SelectAccount(Window form, string accountText)
@@ -857,17 +762,6 @@ namespace HRMITestFlaUI.Module.Setup
                 .FirstOrDefault();
         }
 
-        private void ClickElementByMouse(AutomationElement element)
-        {
-            var rect = element.BoundingRectangle;
-            if (rect.IsEmpty)
-            {
-                element.Focus();
-                return;
-            }
-            Mouse.Click(new Point(rect.Left + (rect.Width / 2), rect.Top + (rect.Height / 2)));
-        }
-
         private void SelectFromUomPicker(Window form, AutomationElement context, string unitText)
         {
             var uomField = context.FindFirstDescendant(cf => cf.ByAutomationId(IdUomButton))
@@ -961,7 +855,6 @@ namespace HRMITestFlaUI.Module.Setup
                 timeoutMs: 3000);
         }
 
-        // ── จัดการภาษี: ติ๊กคำนวณภาษี และเลือกวิธีการคิดภาษี (อัตราก้าวหน้า / Fixed Rate) ──
         private void ApplyTaxSettings(Window form, AutomationElement context, IncomeDeductRecord r)
         {
             TickCheckbox(form, context, IdChkCalcTax, r.CalcTax, "คำนวณภาษี");
@@ -990,24 +883,20 @@ namespace HRMITestFlaUI.Module.Setup
             }
         }
 
-        // ── ติ๊ก Checkbox กลุ่มอื่นๆ ครบทุกหัวข้อตาม Test Step ──
         private void ApplyOtherCheckboxes(Window form, AutomationElement context, IncomeDeductRecord r)
         {
             TickCheckbox(form, context, IdChkDeductBeforeTax, r.DeductBeforeTax, "หักก่อนคำนวณภาษี");
 
-            // หมวดรวมฐานคำนวณ
             TickCheckbox(form, context, IdChkBaseOvertime, r.BaseOvertime, "รวมฐานคำนวณค่าล่วงเวลา", "ค่าล่วงเวลา");
             TickCheckbox(form, context, IdChkBaseAbsenteeism, r.BaseAbsenteeism, "รวมฐานคำนวณการหักขาดงาน", "การหักขาดงาน");
             TickCheckbox(form, context, IdChkBaseBrokenline, r.BaseBrokenline, "รวมฐานคำนวณการหักสาย ออกก่อน", "การหักสาย ออกก่อน", "หักสาย");
             TickCheckbox(form, context, IdChkBaseLeave, r.BaseLeave, "รวมฐานคำนวณการหักลางาน", "รวมฐานคำนวณการหักลา", "การหักลางาน", "การหักลา");
 
-            // หมวดแยกตามงวด
             TickCheckbox(form, context, IdChkByOtPeriod, r.ByOtPeriod, "แยกตามงวดการคิดค่าล่วงเวลา");
             TickCheckbox(form, context, IdChkByAbsentPeriod, r.ByAbsentPeriod, "แยกตามงวดการคิดหักขาดงาน");
             TickCheckbox(form, context, IdChkByBrokenPeriod, r.ByBrokenPeriod, "แยกตามงวดการคิดหักสาย ออกก่อน");
             TickCheckbox(form, context, IdChkByLeavePeriod, r.ByLeavePeriod, "แยกตามงวดการคิดหักลางาน", "แยกตามงวดการคิดหักลา");
 
-            // หมวดประกันสังคมและกองทุน
             TickCheckbox(form, context, IdChkCalcSocialSecurity, r.CalcSocialSecurity, "คำนวณประกันสังคม", "หักก่อนคำนวณประกันสังคม");
             TickCheckbox(form, context, IdChkProvidentFund, r.CalcProvidentFund, "คำนวณกองทุนสำรอง", "หักก่อนคำนวณกองทุนสำรอง");
             TickCheckbox(form, context, IdChkWelfareFundEwf, r.CalcWelfareFund, "คำนวณกองทุนสงเคราะห์ลูกจ้าง", "หักก่อนคำนวณกองทุนสงเคราะห์ลูกจ้าง");
@@ -1042,40 +931,6 @@ namespace HRMITestFlaUI.Module.Setup
             Keyboard.Press(VirtualKeyShort.DELETE);
 
             Keyboard.Type(textValue);
-        }
-
-        private void CloseAnyOpenModalForm()
-        {
-            try
-            {
-                var openForm = FindOpenIncomeDeductForm();
-                if (openForm != null)
-                {
-                    ClickFormCloseButton(openForm);
-                    HandleConfirmDialogIfPresent("No", openForm);
-                    WaitForClosed(() => openForm, 2000);
-                }
-            }
-            catch { }
-        }
-
-        private Window WaitForFormReady(Func<Window?> finder, int timeoutMs = 8000)
-        {
-            var sw = Stopwatch.StartNew();
-            while (sw.ElapsedMilliseconds < timeoutMs)
-            {
-                var w = finder();
-                if (w != null && w.IsAvailable && !w.Properties.IsOffscreen.ValueOrDefault)
-                {
-                    var codeBox = w.FindFirstDescendant(cf => cf.ByAutomationId(IdCode));
-                    if (codeBox != null && codeBox.IsAvailable)
-                    {
-                        return w;
-                    }
-                }
-                Thread.Sleep(100);
-            }
-            throw new Exception("หน้าต่างฟอร์มเปิดขึ้นมาแต่คอนโทรลภายในยังไม่พร้อมทำงาน");
         }
 
         private Window OpenNewIncomeDeductForm(string testName)
@@ -1143,6 +998,288 @@ namespace HRMITestFlaUI.Module.Setup
 
             ClickElementByMouse(editButton);
             return WaitForFormReady(FindOpenIncomeDeductForm);
+        }
+
+        private (string TestName, string ExistingCode, string NewCode)? PerformEdit(string testName, string existingCode,
+            string newCode, string newNameTh, string newNameEn, string saveButtonName, bool needsExplicitClose)
+        {
+            try
+            {
+                Window form = ClickRowAndOpenEditForm(existingCode, testName);
+                var context = GetGeneralTab(form);
+
+                FillIncomeDeductBasicFields(context, newCode, newNameTh, newNameEn);
+
+                if (!TrySaveAndHandleDuplicate(form, testName, newCode, saveButtonName))
+                    return null;
+
+                if (needsExplicitClose)
+                {
+                    ClickFormCloseButton(form);
+                }
+
+                WaitForClosed(() => FindOpenIncomeDeductForm());
+                RefreshGrid();
+
+                if (VerifyRecordExistsInGrid(newCode, refreshGrid: false))
+                    LogSuccessCounted(testName, $"แก้ไข '{existingCode}' เป็น '{newCode}' สำเร็จ (พบในตารางหลัก)");
+                else
+                    LogFailureCounted(testName, $"แก้ไข '{existingCode}' เป็น '{newCode}' แล้วแต่ไม่พบในตารางหลัก");
+
+                return (testName, existingCode, newCode);
+            }
+            catch (Exception ex)
+            {
+                LogFailureCounted(testName, $"แก้ไข '{existingCode}' ไม่สำเร็จ: {ex.Message}");
+                return null;
+            }
+        }
+
+        private void RunDeleteCaseByCode(string baseTestName, string targetCode, string confirmButton, bool expectDeleted)
+        {
+            string testName = $"{baseTestName}_{targetCode}_{confirmButton}";
+            try
+            {
+                RefreshGrid();
+
+                var row = Retry(() => FindElementMatchingValue(targetCode), timeoutMs: 5000)
+                          ?? throw new Exception($"หาแถวรหัส '{targetCode}' บนตารางหลักไม่เจอ");
+
+                row.Focus();
+                ClickElementByMouse(row);
+
+                var deleteButton = Retry(() =>
+                {
+                    var btn = _mainWindow.FindFirstDescendant(cf => cf.ByName("Delete"));
+                    return (btn != null && btn.Properties.IsEnabled.ValueOrDefault) ? btn : null;
+                }, 3000) ?? throw new Exception("หาปุ่ม Delete ไม่เจอ หรือปุ่มยังไม่เปิดใช้งาน");
+
+                ClickElementByMouse(deleteButton);
+
+                AutomationElement? confirmDialog = FindAlertDialog();
+                if (confirmDialog == null) throw new Exception("ไม่พบ Pop-up ยืนยันการลบ");
+
+                ClickDialogButton(confirmDialog, confirmButton, "ยืนยันการลบ");
+                WaitForClosed(() => confirmDialog);
+
+                RefreshGrid();
+
+                bool stillExists = VerifyRecordExistsInGrid(targetCode, timeoutMs: 3000, refreshGrid: false);
+
+                if (expectDeleted)
+                {
+                    if (stillExists)
+                    {
+                        LogFailureCounted(testName, $"'{targetCode}' ลบข้อมูลไม่สำเร็จ");
+                        throw new Exception($"'{targetCode}' ลบข้อมูลไม่สำเร็จ");
+                    }
+                    LogSuccessCounted(testName, $"'{targetCode}' ถูกลบสำเร็จ");
+                }
+                else
+                {
+                    if (!stillExists)
+                    {
+                        LogFailureCounted(testName, $"'{targetCode}' ลบข้อมูลผิดพลาด");
+                        throw new Exception($"'{targetCode}' ลบข้อมูลผิดพลาด");
+                    }
+                    LogSuccessCounted(testName, $"'{targetCode}' ข้อมูลยังไม่ถูกลบ");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogFailureCounted(testName, $"ลบ '{targetCode}' ไม่สำเร็จ: {ex.Message}");
+            }
+        }
+
+        private void TickCheckbox(Window form, AutomationElement context, string checkboxId, bool tick, params string[] fallbackNames)
+        {
+            AutomationElement? found = context.FindFirstDescendant(cf => cf.ByAutomationId(checkboxId))
+                                     ?? form.FindFirstDescendant(cf => cf.ByAutomationId(checkboxId));
+
+            if (found == null && fallbackNames != null)
+            {
+                foreach (var name in fallbackNames)
+                {
+                    found = context.FindFirstDescendant(cf => cf.ByName(name))
+                         ?? form.FindFirstDescendant(cf => cf.ByName(name))
+                         ?? context.FindAllDescendants(cf => cf.ByControlType(ControlType.CheckBox).Or(cf.ByControlType(ControlType.RadioButton)))
+                                   .FirstOrDefault(c => !string.IsNullOrEmpty(c.Name) && c.Name.Contains(name))
+                         ?? form.FindAllDescendants(cf => cf.ByControlType(ControlType.CheckBox).Or(cf.ByControlType(ControlType.RadioButton)))
+                                .FirstOrDefault(c => !string.IsNullOrEmpty(c.Name) && c.Name.Contains(name));
+                    if (found != null) break;
+                }
+            }
+
+            if (found == null) return;
+
+            bool CurrentlyTicked()
+            {
+                try
+                {
+                    var cb = found.AsCheckBox();
+                    if (cb?.IsChecked != null) return cb.IsChecked == true;
+                    if (found.Patterns.Toggle.IsSupported)
+                        return found.Patterns.Toggle.Pattern.ToggleState.Value == ToggleState.On;
+                    if (found.Patterns.SelectionItem.IsSupported)
+                        return found.Patterns.SelectionItem.Pattern.IsSelected.ValueOrDefault;
+                }
+                catch { }
+                return false;
+            }
+
+            if (CurrentlyTicked() == tick) return;
+
+            try
+            {
+                if (found.Patterns.Toggle.IsSupported)
+                {
+                    found.Patterns.Toggle.Pattern.Toggle();
+                    if (WaitUntil(() => CurrentlyTicked() == tick, 400)) return;
+                }
+            }
+            catch { }
+
+            ClickElementByMouse(found);
+            if (WaitUntil(() => CurrentlyTicked() == tick, 400)) return;
+
+            try
+            {
+                found.Focus();
+                Keyboard.Press(VirtualKeyShort.SPACE);
+                Keyboard.Release(VirtualKeyShort.SPACE);
+                WaitUntil(() => CurrentlyTicked() == tick, 500);
+            }
+            catch { }
+        }
+
+        private void SelectTaxMethodRadio(Window form, int radioIndex)
+        {
+            var radioGroup = form.FindFirstDescendant(cf => cf.ByAutomationId(IdTaxMethodRadioGroup));
+            if (radioGroup != null)
+            {
+                var radios = radioGroup.FindAllChildren(cf => cf.ByControlType(ControlType.RadioButton));
+                if (radios.Length > radioIndex)
+                {
+                    var targetRadio = radios[radioIndex];
+                    if (targetRadio.Properties.IsEnabled.ValueOrDefault)
+                    {
+                        ClickElementByMouse(targetRadio);
+                        return;
+                    }
+                }
+            }
+
+            string[] radioLabels = { "แบบอัตราก้าวหน้า", "แบบ Fixed Rate", "หัก ณ ที่จ่าย" };
+            if (radioIndex >= 0 && radioIndex < radioLabels.Length)
+            {
+                string targetLabel = radioLabels[radioIndex];
+                var radioByName = form.FindFirstDescendant(cf => cf.ByName(targetLabel))
+                               ?? form.FindAllDescendants(cf => cf.ByControlType(ControlType.RadioButton))
+                                      .FirstOrDefault(r => !string.IsNullOrEmpty(r.Name) && r.Name.Contains(targetLabel));
+
+                if (radioByName != null && radioByName.Properties.IsEnabled.ValueOrDefault)
+                {
+                    ClickElementByMouse(radioByName);
+                }
+            }
+        }
+
+
+        // =========================================================================================
+        // หมวดที่ 3: ส่วนการทำงานกลางที่ตายตัว (Common / Reusable Helpers)
+        // **ใช้งานร่วมกันได้ทุกหน้าจอ ไม่ต้องแก้ไขคำสั่งเมื่อเปลี่ยนหน้า**
+        // =========================================================================================
+
+        private readonly AutomationElement _mainWindow;
+        private readonly UIA3Automation _automation;
+        private int _totalSuccess = 0;
+        private int _totalFail = 0;
+        private const int TimeoutMs = 6000;
+
+        public IncomeDeductInfoUC(AutomationElement mainWindow, UIA3Automation automation)
+        {
+            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
+            _automation = automation ?? throw new ArgumentNullException(nameof(automation));
+        }
+
+        private bool TryOpenIncomeDeductMenu(string stage)
+        {
+            try
+            {
+                var searchBox = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("baritemSearch"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit)), 4000)
+                                ?? throw new Exception("ไม่พบช่องค้นหา baritemSearch");
+
+                searchBox.Focus();
+                string searchKeyword = FormTitle;
+
+                if (searchBox.Patterns.Value.IsSupported)
+                    searchBox.Patterns.Value.Pattern.SetValue(searchKeyword);
+                else
+                    Keyboard.Type(searchKeyword);
+
+                var searchBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("barChkSearch"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Find")), 4000)
+                                ?? throw new Exception("ไม่พบปุ่มค้นหา barChkSearch");
+
+                searchBtn.Click();
+
+                var menuResult = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName(searchKeyword))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 1"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 26")), 4000)
+                                 ?? throw new Exception("ไม่พบผลลัพธ์เมนูจากการค้นหา");
+
+                menuResult.Focus();
+                menuResult.Click();
+                Keyboard.Press(VirtualKeyShort.ENTER);
+
+                var newBtn = Retry(() =>
+                {
+                    var btn = _mainWindow.FindFirstDescendant(cf => cf.ByName("New"));
+                    return (btn != null && btn.Properties.IsEnabled.ValueOrDefault) ? btn : null;
+                }, TimeoutMs);
+
+                return newBtn != null;
+            }
+            catch (Exception ex)
+            {
+                LogFailureCounted(stage, $"ค้นหาและเปิดหน้าจอไม่สำเร็จ: {ex.Message}");
+                return false;
+            }
+        }
+
+        private Window WaitForFormReady(Func<Window?> finder, int timeoutMs = 8000)
+        {
+            var sw = Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < timeoutMs)
+            {
+                var w = finder();
+                if (w != null && w.IsAvailable && !w.Properties.IsOffscreen.ValueOrDefault)
+                {
+                    var codeBox = w.FindFirstDescendant(cf => cf.ByAutomationId(IdCode));
+                    if (codeBox != null && codeBox.IsAvailable)
+                    {
+                        return w;
+                    }
+                }
+                Thread.Sleep(100);
+            }
+            throw new Exception("หน้าต่างฟอร์มเปิดขึ้นมาแต่คอนโทรลภายในยังไม่พร้อมทำงาน");
+        }
+
+        private void CloseAnyOpenModalForm()
+        {
+            try
+            {
+                var openForm = FindOpenIncomeDeductForm();
+                if (openForm != null)
+                {
+                    ClickFormCloseButton(openForm);
+                    HandleConfirmDialogIfPresent("No", openForm);
+                    WaitForClosed(() => openForm, 2000);
+                }
+            }
+            catch { }
         }
 
         private bool TrySaveAndHandleDuplicate(Window form, string testName, string code, string saveButtonName)
@@ -1290,7 +1427,6 @@ namespace HRMITestFlaUI.Module.Setup
             }
         }
 
-        // ── แก้ไขจุดค้าง: รีเฟรชตารางแบบไม่ทำให้ Thread ค้าง และคืน Focus ให้ DataGrid เสมอ ──
         private void RefreshGrid()
         {
             try
@@ -1306,7 +1442,6 @@ namespace HRMITestFlaUI.Module.Setup
                     return;
                 }
 
-                // Fallback: หากดีย์บอร์ดไม่ติด จึงใช้ปุ่ม Find แบบไม่บล็อกโฟกัส
                 var findBtn = _mainWindow.FindFirstDescendant(cf => cf.ByName("Find").Or(cf.ByAutomationId("btnFind")));
                 if (findBtn != null && findBtn.Properties.IsEnabled.ValueOrDefault)
                 {
@@ -1652,48 +1787,6 @@ namespace HRMITestFlaUI.Module.Setup
             LogSuccessCounted(testName, "ฟอร์มถูกปิด");
         }
 
-        private void AssertTaskResultWarning(Window form, string expectedWarningMessage, string testName)
-        {
-            bool foundMessage = false;
-            var sw = Stopwatch.StartNew();
-
-            string cleanExpected = expectedWarningMessage.Replace(" ", "").Trim();
-
-            while (sw.ElapsedMilliseconds < 5000)
-            {
-                try
-                {
-                    var taskResultPanel = FindTaskResultPanel(form, timeoutMs: 500);
-                    if (taskResultPanel != null)
-                    {
-                        var texts = GetPanelTexts(taskResultPanel);
-                        if (texts.Any(t => t.Replace(" ", "").Contains(cleanExpected)))
-                        {
-                            foundMessage = true;
-                            break;
-                        }
-                    }
-                }
-                catch { }
-                Thread.Sleep(100);
-            }
-
-            if (!foundMessage) throw new Exception($"ไม่พบข้อความ: '{expectedWarningMessage}'");
-            LogSuccessCounted(testName, $"พบข้อความ: '{expectedWarningMessage}'");
-        }
-
-        private void LogSuccessCounted(string testName, string message)
-        {
-            _totalSuccess++;
-            TestLogger.LogSuccess(testName, message);
-        }
-
-        private void LogFailureCounted(string testName, string message)
-        {
-            _totalFail++;
-            TestLogger.LogFailure(testName, message);
-        }
-
         private void FillTextBox(AutomationElement context, string automationId, string text)
         {
             var el = context.FindFirstDescendant(cf => cf.ByAutomationId(automationId));
@@ -1724,103 +1817,48 @@ namespace HRMITestFlaUI.Module.Setup
             }
         }
 
-        // ── ปรับปรุง TickCheckbox ให้รองรับทั้ง CheckBox และ RadioButton พร้อมตรวจสอบสถานะแบบแม่นยำ ──
-        private void TickCheckbox(Window form, AutomationElement context, string checkboxId, bool tick, params string[] fallbackNames)
+        private void ClickPickerEdgeButton(AutomationElement pickerField)
         {
-            AutomationElement? found = context.FindFirstDescendant(cf => cf.ByAutomationId(checkboxId))
-                                     ?? form.FindFirstDescendant(cf => cf.ByAutomationId(checkboxId));
+            var rect = pickerField.BoundingRectangle;
+            int clickX = rect.Right - 12;
+            int clickY = rect.Top + (rect.Height / 2);
 
-            if (found == null && fallbackNames != null)
-            {
-                foreach (var name in fallbackNames)
-                {
-                    found = context.FindFirstDescendant(cf => cf.ByName(name))
-                         ?? form.FindFirstDescendant(cf => cf.ByName(name))
-                         ?? context.FindAllDescendants(cf => cf.ByControlType(ControlType.CheckBox).Or(cf.ByControlType(ControlType.RadioButton)))
-                                   .FirstOrDefault(c => !string.IsNullOrEmpty(c.Name) && c.Name.Contains(name))
-                         ?? form.FindAllDescendants(cf => cf.ByControlType(ControlType.CheckBox).Or(cf.ByControlType(ControlType.RadioButton)))
-                                .FirstOrDefault(c => !string.IsNullOrEmpty(c.Name) && c.Name.Contains(name));
-                    if (found != null) break;
-                }
-            }
-
-            if (found == null) return;
-
-            bool CurrentlyTicked()
-            {
-                try
-                {
-                    var cb = found.AsCheckBox();
-                    if (cb?.IsChecked != null) return cb.IsChecked == true;
-                    if (found.Patterns.Toggle.IsSupported)
-                        return found.Patterns.Toggle.Pattern.ToggleState.Value == ToggleState.On;
-                    if (found.Patterns.SelectionItem.IsSupported)
-                        return found.Patterns.SelectionItem.Pattern.IsSelected.ValueOrDefault;
-                }
-                catch { }
-                return false;
-            }
-
-            if (CurrentlyTicked() == tick) return;
-
-            // 1) ลอง Toggle Pattern ก่อน
-            try
-            {
-                if (found.Patterns.Toggle.IsSupported)
-                {
-                    found.Patterns.Toggle.Pattern.Toggle();
-                    if (WaitUntil(() => CurrentlyTicked() == tick, 400)) return;
-                }
-            }
-            catch { }
-
-            // 2) คลิกเมาส์ตรงกลางคอนโทรล
-            ClickElementByMouse(found);
-            if (WaitUntil(() => CurrentlyTicked() == tick, 400)) return;
-
-            // 3) Fallback ด้วยการ Focus + กด Spacebar
-            try
-            {
-                found.Focus();
-                Keyboard.Press(VirtualKeyShort.SPACE);
-                Keyboard.Release(VirtualKeyShort.SPACE);
-                WaitUntil(() => CurrentlyTicked() == tick, 500);
-            }
-            catch { }
+            Mouse.MoveTo(new Point(clickX, clickY));
+            Mouse.Click(MouseButton.Left);
         }
 
-        // ── เลือกวิธีคิดภาษี: แบบอัตราก้าวหน้า (Index 0) หรือ Fixed Rate (Index 1) ──
-        private void SelectTaxMethodRadio(Window form, int radioIndex)
+        private void ClickElementByMouse(AutomationElement element)
         {
-            var radioGroup = form.FindFirstDescendant(cf => cf.ByAutomationId(IdTaxMethodRadioGroup));
-            if (radioGroup != null)
+            var rect = element.BoundingRectangle;
+            if (rect.IsEmpty)
             {
-                var radios = radioGroup.FindAllChildren(cf => cf.ByControlType(ControlType.RadioButton));
-                if (radios.Length > radioIndex)
-                {
-                    var targetRadio = radios[radioIndex];
-                    if (targetRadio.Properties.IsEnabled.ValueOrDefault)
-                    {
-                        ClickElementByMouse(targetRadio);
-                        return;
-                    }
-                }
+                element.Focus();
+                return;
             }
+            Mouse.Click(new Point(rect.Left + (rect.Width / 2), rect.Top + (rect.Height / 2)));
+        }
 
-            // Fallback: ถ้าหาตาม Id ไม่เจอ ให้หาตามชื่อตัวเลือกภาษาไทยโดยตรง
-            string[] radioLabels = { "แบบอัตราก้าวหน้า", "แบบ Fixed Rate", "หัก ณ ที่จ่าย" };
-            if (radioIndex >= 0 && radioIndex < radioLabels.Length)
-            {
-                string targetLabel = radioLabels[radioIndex];
-                var radioByName = form.FindFirstDescendant(cf => cf.ByName(targetLabel))
-                               ?? form.FindAllDescendants(cf => cf.ByControlType(ControlType.RadioButton))
-                                      .FirstOrDefault(r => !string.IsNullOrEmpty(r.Name) && r.Name.Contains(targetLabel));
+        private void RunValidationStep(string testName, Action step)
+        {
+            try { step(); }
+            catch (Exception ex) { LogFailureCounted(testName, $"ไม่ผ่าน: {ex.Message}"); }
+        }
 
-                if (radioByName != null && radioByName.Properties.IsEnabled.ValueOrDefault)
-                {
-                    ClickElementByMouse(radioByName);
-                }
-            }
+        private static void TryAdd<T>(List<T> list, T? item) where T : struct
+        {
+            if (item.HasValue) list.Add(item.Value);
+        }
+
+        private void LogSuccessCounted(string testName, string message)
+        {
+            _totalSuccess++;
+            TestLogger.LogSuccess(testName, message);
+        }
+
+        private void LogFailureCounted(string testName, string message)
+        {
+            _totalFail++;
+            TestLogger.LogFailure(testName, message);
         }
 
         private static bool WaitUntil(Func<bool> condition, int timeoutMs = TimeoutMs)

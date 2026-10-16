@@ -18,20 +18,166 @@ namespace HRMITestFlaUI.Module.Setup
 {
     public class LeaveTypeInfoUC
     {
-        // ── ตัวแปรสำหรับเก็บออบเจ็กต์หน้าต่างหลัก, ระบบ Automation และตัวนับผลการทดสอบ (Success/Fail) ──
-        private readonly AutomationElement _mainWindow;
-        private readonly UIA3Automation _automation;
+        // =========================================================================================
+        // หมวดที่ 1: ข้อมูลการทดสอบทั้ง 5 ขั้น (Test Data)
+        // =========================================================================================
 
-        private int _totalSuccess = 0;
-        private int _totalFail = 0;
+        // --- Data Records สำหรับใช้งานในแต่ละขั้นตอน ---
+        private sealed record LeaveTypeAddItem(
+            bool ClickNew,
+            string Code,
+            string Name,
+            string NameEng,
+            string Group,
+            string Days,
+            string Remark,
+            string Save);
 
-        // ── ค่าคงที่สำหรับการตั้งค่า Timeout และข้อมูลการระบุตัวตนของฟอร์ม ──
-        private const int TimeoutMs = 6000;
+        private sealed record ValidationItem(
+            string TestCaseId,
+            string Code,
+            string Name,
+            string SaveBtn,
+            string[] ExpectedErrors);
+
+        private sealed record LeaveTypeEditItem(
+            string TestCaseId,
+            string ExistingCode,
+            string NewCode,
+            string NewName,
+            string SaveButtonName);
+
+        private sealed record DeleteItem(
+            string TargetCode,
+            string DialogBtn,
+            bool ExpectDeleted);
+
+        // [ขั้นที่ 1] ข้อมูลทดสอบการสร้างใหม่ (Add / Navigate)
+        private static readonly LeaveTypeAddItem[] Step1_AddCases =
+        {
+            new(
+                true,
+                "LV001",
+                "ลากิจส่วนตัว",
+                "Personal Business Leave",
+                "ลากิจ",
+                "6",
+                "ลาเพื่อดำเนินธุระส่วนตัว",
+                "SaveClose"
+                ),
+            new(
+                true,
+                "LV002",
+                "ลาป่วยทั่วไป",
+                "Sick Leave",
+                "ลาป่วย",
+                "30",
+                "ลาป่วยทั่วไป",
+                "SaveNew"
+                ),
+            new(
+                false,
+                "LV003",
+                "ลาพักผ่อนประจำปี",
+                "Annual Leave",
+                "ลาพักร้อน",
+                "6",
+                "ลาพักผ่อนประจำปี",
+                "SaveNew"
+                ),
+            new(
+                false,
+                "LV004",
+                "ลาคลอดบุตร",
+                "Maternity Leave",
+                "ลาคลอด",
+                "98",
+                "ลาเพื่อคลอดบุตร",
+                "SaveNew"
+                ),
+            new(
+                false,
+                "LV005",
+                "ลาเพื่อสมรส",
+                "Study Leave",
+                "ลาอื่น ๆ",
+                "5",
+                "ลาเพื่อเข้าพิธีสมรส",
+                "SaveAndClose"
+                )
+        };
+
+        // [ขั้นที่ 2] ข้อมูลทดสอบ Validation ตอนเพิ่ม (Add Validation)
+        private static readonly ValidationItem[] Step2_AddValidationCases =
+        {
+            new("TestCase01_MissingCode", "", "ลากิจส่วนตัว", "Save",
+                new[] { "รหัสประเภทการลา ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล" }),
+
+            new("TestCase02_MissingName", "LV001", "", "Save and New",
+                new[] { "ชื่อประเภทการลา ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล" }),
+
+            new("TestCase03_MissingAllFields", "", "", "Save and New",
+                new[] { "รหัสประเภทการลา ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล", "ชื่อประเภทการลา ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล" }),
+
+            new("TestCase04_DuplicateCodeAndName", "LV005", "ลาเพื่อสมรส", "Save and New",
+                new[] { "รหัสประเภทการลา ห้ามซ้ำ กรุณาป้อนข้อมูล" })
+        };
+
+        // [ขั้นที่ 3] ข้อมูลทดสอบการแก้ไขข้อมูล (Edit Records)
+        private static readonly LeaveTypeEditItem[] Step3_EditCases =
+        {
+            new(
+                "TestCase06_EditRow1",
+                "LV001",
+                "TU001",
+                "ลากิจไปทำธุระ",
+                "Save"),
+            new(
+                "TestCase07_EditRow2",
+                "LV002",
+                "TU002",
+                "ลาป่วยไม่สบาย",
+                "Save and Close"
+                )
+        };
+
+        // [ขั้นที่ 4] ข้อมูลทดสอบ Validation ตอนแก้ไข (Edit Validation)
+        private const string EditTargetRow = "LV004";
+        private static readonly ValidationItem[] Step4_EditValidationCases =
+        {
+            new("TestCase08_EditValidation_MissingCode", "", "ลาพักผ่อน", "Save",
+                new[] { "รหัสประเภทการลา ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล" }),
+
+            new("TestCase08_EditValidation_MissingName", "LV004", "", "Save",
+                new[] { "ชื่อประเภทการลา ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล" }),
+
+            new("TestCase08_EditValidation_MissingBoth", "", "", "Save",
+                new[] { "รหัสประเภทการลา ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล", "ชื่อประเภทการลา ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล" }),
+
+            new("TestCase08_EditValidation_DuplicateCodeAndName", "LV005", "ลาเพื่อสมรส", "Save and New",
+                new[] { "รหัสประเภทการลา ห้ามซ้ำ กรุณาป้อนข้อมูล" })
+        };
+
+        // [ขั้นที่ 5] ข้อมูลทดสอบการลบข้อมูล (Delete Records)
+        private static readonly DeleteItem[] Step5_DeleteCases =
+        {
+            new("TU002", "Yes", true),
+            new("TU001", "No", false)
+        };
+
+
+        // =========================================================================================
+        // หมวดที่ 2: ส่วนที่ขึ้นกับหน้าจอนั้นๆ (Screen-Specific Implementation)
+        // **เมื่อเปลี่ยนไปทำหน้าจออื่น ต้องมาแก้ไขค่าและเมทอดในส่วนนี้ทั้งหมด**
+        // =========================================================================================
+
+        // 2.1 Locator & Mappings ประจำหน้าจอ
+        private const string MenuName = "กำหนดประเภทการลา";
+        private const string ScreenLogName = "LeaveTypeInfoUC";
         private const string FormId = "LeaveTypeInfoUC";
         private const string FormTitle = "กำหนดประเภทการลา";
 
-        // ── Controls AutomationId ─────────────────────────────────────
-        // 1. แถบ General
+        // Controls AutomationId: 1. แถบ General
         private const string IdTabGeneral = "devTabPgGeneral";
         private const string IdTxtLeaveTypeCode = "devTxtLeaveTypeCode";
         private const string IdTxtLeaveTypeName = "devTxtLeaveTypeName";
@@ -41,7 +187,7 @@ namespace HRMITestFlaUI.Module.Setup
         private const string IdMemoRemark = "devMemoRemark";
         private const string IdFormLeaveTypeInfoUC = "LeaveTypeInfoUC";
 
-        // 2. แถบ ข้อกำหนดการลา
+        // Controls AutomationId: 2. แถบ ข้อกำหนดการลา
         private const string IdTabRules = "devTabPgDeduct";
         private const string IdChkDeduct = "devChkDeduct";
         private const string IdChkDeductMonth = "devChkDeductMonth";
@@ -50,7 +196,7 @@ namespace HRMITestFlaUI.Module.Setup
         private const string IdChkDecMonthlyAddLeave = "devChkDecMonthlyAddLeave";
         private const string IdChkPayReturn = "devChkPayReturn";
 
-        // 3. แถบ เงื่อนไขการตรวจสอบ
+        // Controls AutomationId: 3. แถบ เงื่อนไขการตรวจสอบ
         private const string IdTabCondition = "devTabPgCondition";
         private const string IdChkProrate = "devChkProrate";
         private const string IdRdgNotCondition = "devRdgNotCondition";
@@ -60,98 +206,19 @@ namespace HRMITestFlaUI.Module.Setup
 
         private static readonly string[] PreExistingLeaveCodes = new[] { "L-001", "L-002" };
 
-        // ── Win32 P/Invoke ─────────────────────────────────────────────
-        [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
-        [DllImport("user32.dll")] private static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
-        private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
-        private const uint MOUSEEVENTF_LEFTUP = 0x0004;
-
-        [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr hWnd);
-        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
-
-        public LeaveTypeInfoUC(AutomationElement mainWindow, UIA3Automation automation)
-        {
-            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
-            _automation = automation ?? throw new ArgumentNullException(nameof(automation));
-        }
-
-        private AutomationElement GetGeneralTab(Window form) =>
-            form.FindFirstDescendant(cf => cf.ByAutomationId(IdTabGeneral)) ?? form;
-
-        // -------------------------------------------------------------
-        // * Navigation & Search System *
-        // -------------------------------------------------------------
-        /* Method สำหรับค้นหาหน้าจอกำหนดประเภทการลาผ่านแถบค้นหาด้านบน (baritemSearch) */
-        private bool TryOpenLeaveTypeMenu(string stage)
-        {
-            try
-            {
-                // 1. ค้นหาช่องค้นหา baritemSearch
-                var searchBox = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("baritemSearch"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit)), 4000)
-                                ?? throw new Exception("ไม่พบช่องค้นหา baritemSearch");
-
-                WaitUntil(() => { try { searchBox.Focus(); return true; } catch { return false; } }, 1000);
-                string searchKeyword = FormTitle;
-
-                if (searchBox.Patterns.Value.IsSupported)
-                    searchBox.Patterns.Value.Pattern.SetValue(searchKeyword);
-                else
-                    Keyboard.Type(searchKeyword);
-
-                // 2. คลิกปุ่มค้นหา barChkSearch
-                var searchBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("barChkSearch"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Find")), 4000)
-                                ?? throw new Exception("ไม่พบปุ่มค้นหา barChkSearch");
-
-                searchBtn.Click();
-
-                // 3. รอและเลือกผลลัพธ์เมนู
-                var menuResult = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName(searchKeyword))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 1"))
-                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 19")), 4000)
-                                 ?? throw new Exception("ไม่พบผลลัพธ์เมนูจากการค้นหา");
-
-                menuResult.Focus();
-                menuResult.Click();
-                Keyboard.Press(VirtualKeyShort.ENTER);
-
-                // 4. รอให้ปุ่ม New แสดงบนหน้าจอเพื่อยืนยันว่าเข้าหน้าจอเรียบร้อยแล้ว
-                return WaitUntil(() =>
-                {
-                    var newBtn = _mainWindow.FindFirstDescendant(cf => cf.ByName("New"));
-                    return newBtn != null && newBtn.Properties.IsEnabled.ValueOrDefault && !newBtn.Properties.IsOffscreen.ValueOrDefault;
-                }, TimeoutMs);
-            }
-            catch (Exception ex)
-            {
-                LogFailureCounted(stage, $"ค้นหาและเปิดหน้าจอไม่สำเร็จ: {ex.Message}");
-                return false;
-            }
-        }
-
-        // ---------------------------------------------------------------
-        // 1. ทดสอบการ New โดยเพิ่มข้อมูล 5 รายการ
-        // ---------------------------------------------------------------
+        /// <summary>
+        /// ขั้นที่ 1: เปิดหน้าจอและกรอกข้อมูลสร้างใหม่
+        /// </summary>
         public void NavigateToLeaveTypeInfoUC()
         {
             string stageName = "TestCase00_AddLeaveTypeData";
-            TestLogger.LogInfo("LeaveTypeInfoUC", "เริ่มทดสอบหน้าจอกำหนดประเภทการลา");
+            TestLogger.LogInfo(ScreenLogName, "เริ่มทดสอบหน้าจอกำหนดประเภทการลา");
 
             if (!TryOpenLeaveTypeMenu(stageName)) return;
 
-            var dataList = new[]
-            {
-                new { ClickNew = true,  Code = "LV001", Name = "ลากิจส่วนตัว",       NameEng = "Personal Business Leave", Group = "ลากิจ",     Days = "6",  Remark = "ลาเพื่อดำเนินธุระส่วนตัว", Save = "SaveClose" },
-                new { ClickNew = true,  Code = "LV002", Name = "ลาป่วยทั่วไป",      NameEng = "Sick Leave",              Group = "ลาป่วย",     Days = "30", Remark = "ลาป่วยทั่วไป",              Save = "SaveNew" },
-                new { ClickNew = false, Code = "LV003", Name = "ลาพักผ่อนประจำปี",  NameEng = "Annual Leave",            Group = "ลาพักร้อน",  Days = "6",  Remark = "ลาพักผ่อนประจำปี",         Save = "SaveNew" },
-                new { ClickNew = false, Code = "LV004", Name = "ลาคลอดบุตร",       NameEng = "Maternity Leave",         Group = "ลาคลอด",    Days = "98", Remark = "ลาเพื่อคลอดบุตร",          Save = "SaveNew" },
-                new { ClickNew = false, Code = "LV005", Name = "ลาเพื่อสมรส",       NameEng = "Study Leave",             Group = "ลาอื่น ๆ",   Days = "5",  Remark = "ลาเพื่อเข้าพิธีสมรส",         Save = "SaveAndClose" }
-            };
-
             Window? form = null;
 
-            foreach (var data in dataList)
+            foreach (var data in Step1_AddCases)
             {
                 string testName = $"{stageName}_{data.Code}";
                 try
@@ -214,9 +281,9 @@ namespace HRMITestFlaUI.Module.Setup
             EnsureNoStrayModal($"{stageName}_Cleanup");
         }
 
-        // ---------------------------------------------------------------
-        // 2. ทดสอบ แจ้งเตือนต่างๆ เมื่อ New
-        // ---------------------------------------------------------------
+        /// <summary>
+        /// ขั้นที่ 2: รัน Validation ตอนสร้างข้อมูลใหม่
+        /// </summary>
         public void RunAllValidationTests()
         {
             string stageName = "TestCase01-06_ValidationNew";
@@ -235,90 +302,43 @@ namespace HRMITestFlaUI.Module.Setup
 
             var context = GetGeneralTab(form);
 
-            // [เคส 1] ไม่กรอกรหัส + กรอกชื่อ "ลากิจส่วนตัว" -> กด Save
-            RunValidationStep("TestCase01_MissingCode", () =>
+            foreach (var testCase in Step2_AddValidationCases.Take(3))
             {
-                FillAndSaveThenAssert(context, form, "", "ลากิจส่วนตัว", "Save",
-                    "TestCase01_MissingCode", "รหัสประเภทการลา ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล");
+                RunValidationStep(testCase.TestCaseId, () =>
+                {
+                    FillAndSaveThenAssert(context, form, testCase.Code, testCase.Name, testCase.SaveBtn,
+                        testCase.TestCaseId, testCase.ExpectedErrors);
+                });
+            }
+
+            var dupCase = Step2_AddValidationCases[3];
+            RunValidationStep(dupCase.TestCaseId, () =>
+            {
+                FillAndSaveThenAssert(context, form, dupCase.Code, dupCase.Name, dupCase.SaveBtn,
+                    dupCase.TestCaseId, dupCase.ExpectedErrors);
             });
 
-            // [เคส 2] LV001 + ไม่กรอกชื่อ -> กด Save and New
-            RunValidationStep("TestCase02_MissingName", () =>
-            {
-                FillAndSaveThenAssert(context, form, "LV001", "", "Save and New",
-                    "TestCase02_MissingName", "ชื่อประเภทการลา ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล");
-            });
-
-            // [เคส 3] ไม่กรอกรหัส + ไม่กรอกชื่อ -> กด Save and New
-            RunValidationStep("TestCase03_MissingAllFields", () =>
-            {
-                FillAndSaveThenAssert(context, form, "", "", "Save and New",
-                    "TestCase03_MissingAllFields",
-                    "รหัสประเภทการลา ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล",
-                    "ชื่อประเภทการลา ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล");
-            });
-
-            // [เคส 4] รหัส/ชื่อซ้ำ: LV005 + ลาเพื่อสมรส -> กด Save and New
-            string subCase = "TestCase04_DuplicateCodeAndName";
-            RunValidationStep(subCase, () =>
-            {
-                FillAndSaveThenAssert(context, form, "LV005", "ลาเพื่อสมรส", "Save and New",
-                    subCase, "รหัสประเภทการลา ห้ามซ้ำ กรุณาป้อนข้อมูล");
-            });
-
-            // [เคส 5] ลำดับการปิดหน้าจอหลังแจ้งเตือนซ้ำ (Close Sequence)
-            RunValidationStep($"{subCase}_CloseSequence", () =>
-                RunCloseDialogSequence(form, subCase, "รหัสประเภทการลา ห้ามซ้ำ กรุณาป้อนข้อมูล"));
+            RunValidationStep($"{dupCase.TestCaseId}_CloseSequence", () =>
+                RunCloseDialogSequence(form, dupCase.TestCaseId, "รหัสประเภทการลา ห้ามซ้ำ กรุณาป้อนข้อมูล"));
         }
 
-        // ---------------------------------------------------------------
-        // 3. ทดสอบ Edit
-        // ---------------------------------------------------------------
+        /// <summary>
+        /// ขั้นที่ 3: เลือกแก้ไขรายการในตาราง
+        /// </summary>
         public void RunEditTests()
         {
             string stageName = "TestCase03_EditData";
             EnsureNoStrayModal($"{stageName}_PreCheck");
 
-            PerformEdit("TestCase06_EditRow1", existingCode: "LV001", newCode: "TU001", newName: "ลากิจไปทำธุระ", saveButtonName: "Save");
-            PerformEdit("TestCase07_EditRow2", existingCode: "LV002", newCode: "TU002", newName: "ลาป่วยไม่สบาย", saveButtonName: "Save and Close");
-        }
-
-        private void PerformEdit(string testName, string existingCode, string newCode, string newName, string saveButtonName)
-        {
-            try
+            foreach (var item in Step3_EditCases)
             {
-                Window form = ClickRowAndOpenEditForm(existingCode, testName);
-                var context = GetGeneralTab(form);
-
-                FillTextBox(context, IdTxtLeaveTypeCode, newCode);
-                FillTextBox(context, IdTxtLeaveTypeName, newName);
-
-                if (saveButtonName == "Save and Close" && SafeClick(form, "Save and Close"))
-                {
-                    SafeCloseForm(form);
-                }
-                else
-                {
-                    SafeClick(form, "Save");
-                    SafeCloseForm(form);
-                }
-
-                WaitForClosed(() => FindOpenLeaveTypeForm());
-
-                if (VerifyRecordExistsInGrid(newCode))
-                    LogSuccessCounted(testName, $"แก้ไข '{existingCode}' เป็น '{newCode}' สำเร็จ (พบในตารางหลัก)");
-                else
-                    LogFailureCounted(testName, $"แก้ไข '{existingCode}' เป็น '{newCode}' แล้ว แต่ไม่พบในตารางหลัก");
-            }
-            catch (Exception ex)
-            {
-                LogFailureCounted(testName, $"แก้ไข '{existingCode}' ไม่สำเร็จ: {ex.Message}");
+                PerformEdit(item.TestCaseId, item.ExistingCode, item.NewCode, item.NewName, item.SaveButtonName);
             }
         }
 
-        // ---------------------------------------------------------------
-        // 4. ทดสอบ การแจ้งเตือน Edit
-        // ---------------------------------------------------------------
+        /// <summary>
+        /// ขั้นที่ 4: รัน Validation ตอนแก้ไขข้อมูล
+        /// </summary>
         public void RunEditValidationTests()
         {
             string baseTestName = "TestCase08_EditValidation";
@@ -327,7 +347,7 @@ namespace HRMITestFlaUI.Module.Setup
             Window form;
             try
             {
-                form = ClickRowAndOpenEditForm("LV004", baseTestName);
+                form = ClickRowAndOpenEditForm(EditTargetRow, baseTestName);
             }
             catch (Exception ex)
             {
@@ -337,174 +357,62 @@ namespace HRMITestFlaUI.Module.Setup
 
             var context = GetGeneralTab(form);
 
-            // 4.1 ลบรหัสประเภทการลา -> ชื่อ "ลาพักผ่อน" -> กด Save
-            RunValidationStep($"{baseTestName}_MissingCode", () =>
-                FillAndSaveThenAssert(context, form, "", "ลาพักผ่อน", "Save",
-                    $"{baseTestName}_MissingCode", "รหัสประเภทการลา ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล"));
+            RunValidationStep(Step4_EditValidationCases[0].TestCaseId, () =>
+                FillAndSaveThenAssert(context, form, Step4_EditValidationCases[0].Code, Step4_EditValidationCases[0].Name, Step4_EditValidationCases[0].SaveBtn,
+                    Step4_EditValidationCases[0].TestCaseId, Step4_EditValidationCases[0].ExpectedErrors));
 
-            // 4.2 กรอกรหัสเดิม LV004 -> ลบชื่อประเภทการลาออก -> ใช้ Save เพื่อให้ Validation ทำงานแน่นอนในโหมด Edit
-            RunValidationStep($"{baseTestName}_MissingName", () =>
-                FillAndSaveThenAssert(context, form, "LV004", "", "Save",
-                    $"{baseTestName}_MissingName", "ชื่อประเภทการลา ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล"));
+            RunValidationStep(Step4_EditValidationCases[1].TestCaseId, () =>
+                FillAndSaveThenAssert(context, form, Step4_EditValidationCases[1].Code, Step4_EditValidationCases[1].Name, Step4_EditValidationCases[1].SaveBtn,
+                    Step4_EditValidationCases[1].TestCaseId, Step4_EditValidationCases[1].ExpectedErrors));
 
-            // 4.3 ลบรหัสเดิมออก -> ลบชื่อเดิมออก -> กด Save
-            RunValidationStep($"{baseTestName}_MissingBoth", () =>
-                FillAndSaveThenAssert(context, form, "", "", "Save",
-                    $"{baseTestName}_MissingBoth",
-                    "รหัสประเภทการลา ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล",
-                    "ชื่อประเภทการลา ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล"));
+            RunValidationStep(Step4_EditValidationCases[2].TestCaseId, () =>
+                FillAndSaveThenAssert(context, form, Step4_EditValidationCases[2].Code, Step4_EditValidationCases[2].Name, Step4_EditValidationCases[2].SaveBtn,
+                    Step4_EditValidationCases[2].TestCaseId, Step4_EditValidationCases[2].ExpectedErrors));
 
-            // 4.4 กรอกรหัสซ้ำ LV005 -> กรอกชื่อซ้ำ "ลาเพื่อสมรส" -> กด Save and New
-            string subCase = $"{baseTestName}_DuplicateCodeAndName";
-            RunValidationStep(subCase, () =>
+            var dupEditCase = Step4_EditValidationCases[3];
+            RunValidationStep(dupEditCase.TestCaseId, () =>
             {
                 ClearField(context, IdTxtLeaveTypeCode);
                 ClearField(context, IdTxtLeaveTypeName);
 
-                FillAndSaveThenAssert(context, form, "LV005", "ลาเพื่อสมรส", "Save and New",
-                    subCase, "รหัสประเภทการลา ห้ามซ้ำ กรุณาป้อนข้อมูล");
+                FillAndSaveThenAssert(context, form, dupEditCase.Code, dupEditCase.Name, dupEditCase.SaveBtn,
+                    dupEditCase.TestCaseId, dupEditCase.ExpectedErrors);
             });
 
-            // 4.5 ลำดับการปิดหน้าจอหลังเตือนซ้ำ (Close Sequence)
-            RunValidationStep($"{subCase}_CloseSequence", () =>
-                RunCloseDialogSequence(form, subCase, "รหัสประเภทการลา ห้ามซ้ำ กรุณาป้อนข้อมูล"));
+            RunValidationStep($"{dupEditCase.TestCaseId}_CloseSequence", () =>
+                RunCloseDialogSequence(form, dupEditCase.TestCaseId, "รหัสประเภทการลา ห้ามซ้ำ กรุณาป้อนข้อมูล"));
 
             LogSuccessCounted(baseTestName, "รัน Validation Edit ครบทุกเคสแล้ว");
         }
 
-        // ---------------------------------------------------------------
-        // 5. ทดสอบ Delete
-        // ---------------------------------------------------------------
+        /// <summary>
+        /// ขั้นที่ 5: ทดสอบการลบรายการในตาราง
+        /// </summary>
         public void RunDeleteTests()
         {
             string baseTestName = "TestCase09_Delete";
 
-            // คลิกข้อมูลแถวสุดท้าย (TU002) -> กด Delete -> ตอบ Yes (ลบสำเร็จ)
-            RunDeleteCase(baseTestName, targetCode: "TU002", confirmButton: "Yes", expectDeleted: true);
-
-            // คลิกข้อมูลแถวแรก (TU001) -> กด Delete -> ตอบ No (ข้อมูลยังคงเดิม)
-            RunDeleteCase(baseTestName, targetCode: "TU001", confirmButton: "No", expectDeleted: false);
+            foreach (var testCase in Step5_DeleteCases)
+            {
+                RunDeleteCase(baseTestName, testCase.TargetCode, testCase.DialogBtn, testCase.ExpectDeleted);
+            }
 
             LogSuccessCounted(baseTestName, "ทดสอบ Delete ครบทุกเคส");
-            TestLogger.LogInfo("LeaveTypeInfoUC", $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
+            TestLogger.LogInfo(ScreenLogName, $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
         }
 
-        private void RunDeleteCase(string baseTestName, string targetCode, string confirmButton, bool expectDeleted)
+        public void RunAllTestSteps()
         {
-            string testName = $"{baseTestName}_{targetCode}_{confirmButton}";
-            try
-            {
-                DeleteRowByCodeAndVerify(targetCode, confirmButton, testName, expectDeleted);
-            }
-            catch (Exception ex)
-            {
-                LogFailureCounted(testName, $"ลบรหัส '{targetCode}' ไม่สำเร็จ: {ex.Message}");
-            }
+            NavigateToLeaveTypeInfoUC();
+            RunAllValidationTests();
+            RunEditTests();
+            RunEditValidationTests();
+            RunDeleteTests();
         }
 
-        // ---------------------------------------------------------------
-        // Shared Test-Flow Helpers
-        // ---------------------------------------------------------------
-        private void RunValidationStep(string testName, Action step)
-        {
-            try
-            {
-                step();
-            }
-            catch (Exception ex)
-            {
-                LogFailureCounted(testName, $"ไม่ผ่าน: {ex.Message}");
-            }
-        }
-
-        private void RunCloseDialogSequence(Window form, string testNamePrefix, string expectedWarningMessage)
-        {
-            string subCase = $"{testNamePrefix}_Close_Yes";
-            ClickCloseAndHandleDialog(form, "Yes");
-            AssertWarningAndFormOpen(form, expectedWarningMessage, subCase);
-
-            subCase = $"{testNamePrefix}_Close_Cancel";
-            ClickCloseAndHandleDialog(form, "Cancel");
-            AssertFormStillOpen(form, subCase);
-
-            subCase = $"{testNamePrefix}_Close_No";
-            ClickCloseAndHandleDialog(form, "No");
-            AssertFormClosed(form, subCase);
-        }
-
-        private void FillAndSaveThenAssert(AutomationElement context, Window form, string code, string name,
-            string saveButtonName, string testName, params string[] expectedMessages)
-        {
-            FillTextBox(context, IdTxtLeaveTypeCode, code);
-            FillTextBox(context, IdTxtLeaveTypeName, name);
-
-            WaitUntil(() => { try { form.Focus(); return true; } catch { return false; } }, 1000);
-
-            SafeClick(form, saveButtonName);
-
-            var pending = new HashSet<string>(expectedMessages);
-            var sw = Stopwatch.StartNew();
-
-            while (sw.ElapsedMilliseconds < 5000 && pending.Count > 0)
-            {
-                try
-                {
-                    var taskResultPanel = form.FindFirstDescendant(cf => cf.ByName("Task Result").Or(cf.ByAutomationId("dockPanelTaskResult")))
-                        ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Task Result").Or(cf.ByAutomationId("dockPanelTaskResult")));
-
-                    var allTexts = new List<string>();
-                    if (taskResultPanel != null) allTexts.AddRange(GetPanelTexts(taskResultPanel));
-                    allTexts.AddRange(GetPanelTexts(form));
-
-                    foreach (var m in pending.ToList())
-                    {
-                        if (allTexts.Any(t => t.Contains(m) || (m.Contains(" ") && t.Contains(m.Split(' ')[0]))))
-                            pending.Remove(m);
-                    }
-                }
-                catch { }
-
-                if (pending.Count == 0) break;
-            }
-
-            if (pending.Count > 0)
-                throw new Exception($"ไม่พบข้อความแจ้งเตือน: '{string.Join("', '", pending)}'");
-
-            string formattedList = string.Join(",", expectedMessages.Select(m => $"'{m}'"));
-            LogSuccessCounted(testName, $"พบข้อความ: {formattedList}");
-        }
-
-        private void AssertWarningAndFormOpen(Window form, string expectedWarningMessage, string testName)
-        {
-            bool foundMessage = false;
-            var sw = Stopwatch.StartNew();
-
-            while (sw.ElapsedMilliseconds < 4000)
-            {
-                try
-                {
-                    var taskResultPanel = form.FindFirstDescendant(cf => cf.ByName("Task Result").Or(cf.ByAutomationId("dockPanelTaskResult")))
-                        ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Task Result").Or(cf.ByAutomationId("dockPanelTaskResult")));
-
-                    var allTexts = new List<string>();
-                    if (taskResultPanel != null) allTexts.AddRange(GetPanelTexts(taskResultPanel));
-                    allTexts.AddRange(GetPanelTexts(form));
-
-                    if (allTexts.Any(t => t.Contains(expectedWarningMessage) || (expectedWarningMessage.Contains(" ") && t.Contains(expectedWarningMessage.Split(' ')[0]))))
-                    {
-                        foundMessage = true;
-                        break;
-                    }
-                }
-                catch { }
-            }
-
-            bool isOpen = WaitUntil(() => !form.Properties.IsOffscreen.ValueOrDefault && form.IsAvailable, 2000);
-            if (!foundMessage || !isOpen)
-                throw new Exception($"ตรวจสอบไม่ผ่าน (พบข้อความ: {foundMessage}, ฟอร์มเปิดอยู่: {isOpen})");
-
-            LogSuccessCounted(testName, $"พบข้อความ: '{expectedWarningMessage}' และ ฟอร์มถูกเปิดอยู่");
-        }
+        // --- Custom Mapping & Control Logic ประจำหน้าจอ LeaveTypeInfoUC ---
+        private AutomationElement GetGeneralTab(Window form) =>
+            form.FindFirstDescendant(cf => cf.ByAutomationId(IdTabGeneral)) ?? form;
 
         private void FillGeneralTab(Window form, string code, string name, string nameEng, string group = "", string days = "", string remark = "")
         {
@@ -587,6 +495,39 @@ namespace HRMITestFlaUI.Module.Setup
             return form;
         }
 
+        private void PerformEdit(string testName, string existingCode, string newCode, string newName, string saveButtonName)
+        {
+            try
+            {
+                Window form = ClickRowAndOpenEditForm(existingCode, testName);
+                var context = GetGeneralTab(form);
+
+                FillTextBox(context, IdTxtLeaveTypeCode, newCode);
+                FillTextBox(context, IdTxtLeaveTypeName, newName);
+
+                if (saveButtonName == "Save and Close" && SafeClick(form, "Save and Close"))
+                {
+                    SafeCloseForm(form);
+                }
+                else
+                {
+                    SafeClick(form, "Save");
+                    SafeCloseForm(form);
+                }
+
+                WaitForClosed(() => FindOpenLeaveTypeForm());
+
+                if (VerifyRecordExistsInGrid(newCode))
+                    LogSuccessCounted(testName, $"แก้ไข '{existingCode}' เป็น '{newCode}' สำเร็จ (พบในตารางหลัก)");
+                else
+                    LogFailureCounted(testName, $"แก้ไข '{existingCode}' เป็น '{newCode}' แล้ว แต่ไม่พบในตารางหลัก");
+            }
+            catch (Exception ex)
+            {
+                LogFailureCounted(testName, $"แก้ไข '{existingCode}' ไม่สำเร็จ: {ex.Message}");
+            }
+        }
+
         private void DeleteRowByCodeAndVerify(string targetCode, string confirmButton, string testName, bool expectDeleted)
         {
             AutomationElement? row = FindGridRowByCodeInContainer(_mainWindow, targetCode)
@@ -617,9 +558,185 @@ namespace HRMITestFlaUI.Module.Setup
             LogSuccessCounted(testName, expectDeleted ? $"'{targetCode}' ถูกลบสำเร็จ" : $"'{targetCode}' ข้อมูลยังไม่ถูกลบ");
         }
 
-        // ---------------------------------------------------------------
-        // Dialog Helpers
-        // ---------------------------------------------------------------
+
+        // =========================================================================================
+        // หมวดที่ 3: ส่วนการทำงานกลางที่ตายตัว (Common / Reusable Helpers)
+        // **ใช้งานร่วมกันได้ทุกหน้าจอ ไม่ต้องแก้ไขคำสั่งเมื่อเปลี่ยนหน้า**
+        // =========================================================================================
+
+        private readonly AutomationElement _mainWindow;
+        private readonly UIA3Automation _automation;
+        private int _totalSuccess = 0;
+        private int _totalFail = 0;
+        private const int TimeoutMs = 6000;
+
+        // Win32 P/Invoke
+        [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
+        [DllImport("user32.dll")] private static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
+        private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+        private const uint MOUSEEVENTF_LEFTUP = 0x0004;
+
+        [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr hWnd);
+        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        public LeaveTypeInfoUC(AutomationElement mainWindow, UIA3Automation automation)
+        {
+            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
+            _automation = automation ?? throw new ArgumentNullException(nameof(automation));
+        }
+
+        private bool TryOpenLeaveTypeMenu(string stage)
+        {
+            try
+            {
+                var searchBox = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("baritemSearch"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit)), 4000)
+                                ?? throw new Exception("ไม่พบช่องค้นหา baritemSearch");
+
+                WaitUntil(() => { try { searchBox.Focus(); return true; } catch { return false; } }, 1000);
+                string searchKeyword = FormTitle;
+
+                if (searchBox.Patterns.Value.IsSupported)
+                    searchBox.Patterns.Value.Pattern.SetValue(searchKeyword);
+                else
+                    Keyboard.Type(searchKeyword);
+
+                var searchBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId("barChkSearch"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Find")), 4000)
+                                ?? throw new Exception("ไม่พบปุ่มค้นหา barChkSearch");
+
+                searchBtn.Click();
+
+                var menuResult = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName(searchKeyword))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 1"))
+                                            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 19")), 4000)
+                                 ?? throw new Exception("ไม่พบผลลัพธ์เมนูจากการค้นหา");
+
+                menuResult.Focus();
+                menuResult.Click();
+                Keyboard.Press(VirtualKeyShort.ENTER);
+
+                return WaitUntil(() =>
+                {
+                    var newBtn = _mainWindow.FindFirstDescendant(cf => cf.ByName("New"));
+                    return newBtn != null && newBtn.Properties.IsEnabled.ValueOrDefault && !newBtn.Properties.IsOffscreen.ValueOrDefault;
+                }, TimeoutMs);
+            }
+            catch (Exception ex)
+            {
+                LogFailureCounted(stage, $"ค้นหาและเปิดหน้าจอไม่สำเร็จ: {ex.Message}");
+                return false;
+            }
+        }
+
+        private void RunValidationStep(string testName, Action step)
+        {
+            try { step(); }
+            catch (Exception ex) { LogFailureCounted(testName, $"ไม่ผ่าน: {ex.Message}"); }
+        }
+
+        private void RunCloseDialogSequence(Window form, string testNamePrefix, string expectedWarningMessage)
+        {
+            string subCase = $"{testNamePrefix}_Close_Yes";
+            ClickCloseAndHandleDialog(form, "Yes");
+            AssertWarningAndFormOpen(form, expectedWarningMessage, subCase);
+
+            subCase = $"{testNamePrefix}_Close_Cancel";
+            ClickCloseAndHandleDialog(form, "Cancel");
+            AssertFormStillOpen(form, subCase);
+
+            subCase = $"{testNamePrefix}_Close_No";
+            ClickCloseAndHandleDialog(form, "No");
+            AssertFormClosed(form, subCase);
+        }
+
+        private void RunDeleteCase(string baseTestName, string targetCode, string confirmButton, bool expectDeleted)
+        {
+            string testName = $"{baseTestName}_{targetCode}_{confirmButton}";
+            try
+            {
+                DeleteRowByCodeAndVerify(targetCode, confirmButton, testName, expectDeleted);
+            }
+            catch (Exception ex)
+            {
+                LogFailureCounted(testName, $"ลบรหัส '{targetCode}' ไม่สำเร็จ: {ex.Message}");
+            }
+        }
+
+        private void FillAndSaveThenAssert(AutomationElement context, Window form, string code, string name,
+            string saveButtonName, string testName, params string[] expectedMessages)
+        {
+            FillTextBox(context, IdTxtLeaveTypeCode, code);
+            FillTextBox(context, IdTxtLeaveTypeName, name);
+
+            WaitUntil(() => { try { form.Focus(); return true; } catch { return false; } }, 1000);
+
+            SafeClick(form, saveButtonName);
+
+            var pending = new HashSet<string>(expectedMessages);
+            var sw = Stopwatch.StartNew();
+
+            while (sw.ElapsedMilliseconds < 5000 && pending.Count > 0)
+            {
+                try
+                {
+                    var taskResultPanel = form.FindFirstDescendant(cf => cf.ByName("Task Result").Or(cf.ByAutomationId("dockPanelTaskResult")))
+                        ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Task Result").Or(cf.ByAutomationId("dockPanelTaskResult")));
+
+                    var allTexts = new List<string>();
+                    if (taskResultPanel != null) allTexts.AddRange(GetPanelTexts(taskResultPanel));
+                    allTexts.AddRange(GetPanelTexts(form));
+
+                    foreach (var m in pending.ToList())
+                    {
+                        if (allTexts.Any(t => t.Contains(m) || (m.Contains(" ") && t.Contains(m.Split(' ')[0]))))
+                            pending.Remove(m);
+                    }
+                }
+                catch { }
+
+                if (pending.Count == 0) break;
+            }
+
+            if (pending.Count > 0)
+                throw new Exception($"ไม่พบข้อความแจ้งเตือน: '{string.Join("', '", pending)}'");
+
+            string formattedList = string.Join(",", expectedMessages.Select(m => $"'{m}'"));
+            LogSuccessCounted(testName, $"พบข้อความ: {formattedList}");
+        }
+
+        private void AssertWarningAndFormOpen(Window form, string expectedWarningMessage, string testName)
+        {
+            bool foundMessage = false;
+            var sw = Stopwatch.StartNew();
+
+            while (sw.ElapsedMilliseconds < 4000)
+            {
+                try
+                {
+                    var taskResultPanel = form.FindFirstDescendant(cf => cf.ByName("Task Result").Or(cf.ByAutomationId("dockPanelTaskResult")))
+                        ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("Task Result").Or(cf.ByAutomationId("dockPanelTaskResult")));
+
+                    var allTexts = new List<string>();
+                    if (taskResultPanel != null) allTexts.AddRange(GetPanelTexts(taskResultPanel));
+                    allTexts.AddRange(GetPanelTexts(form));
+
+                    if (allTexts.Any(t => t.Contains(expectedWarningMessage) || (expectedWarningMessage.Contains(" ") && t.Contains(expectedWarningMessage.Split(' ')[0]))))
+                    {
+                        foundMessage = true;
+                        break;
+                    }
+                }
+                catch { }
+            }
+
+            bool isOpen = WaitUntil(() => !form.Properties.IsOffscreen.ValueOrDefault && form.IsAvailable, 2000);
+            if (!foundMessage || !isOpen)
+                throw new Exception($"ตรวจสอบไม่ผ่าน (พบข้อความ: {foundMessage}, ฟอร์มเปิดอยู่: {isOpen})");
+
+            LogSuccessCounted(testName, $"พบข้อความ: '{expectedWarningMessage}' และ ฟอร์มถูกเปิดอยู่");
+        }
+
         private void ClickCloseAndHandleDialog(Window form, string buttonToClick)
         {
             ForceActivateWindow(form);
@@ -688,9 +805,6 @@ namespace HRMITestFlaUI.Module.Setup
             WaitForClosed(() => FindOpenLeaveTypeForm());
         }
 
-        // ---------------------------------------------------------------
-        // Grid & Element Assertion Helpers
-        // ---------------------------------------------------------------
         private bool VerifyRecordExistsInGrid(string value, int timeoutMs = 5000)
         {
             if (string.IsNullOrWhiteSpace(value)) return false;
