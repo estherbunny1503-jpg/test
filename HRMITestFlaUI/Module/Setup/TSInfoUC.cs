@@ -893,9 +893,10 @@ namespace HRMITestFlaUI.Module.Setup
 
         private void SelectDevExpressComboByValue(AutomationElement context, string automationId, string itemText)
         {
-            var cbx = Retry(() => context.FindFirstDescendant(cf => cf.ByAutomationId(automationId)))
-                   ?? Retry(() => context.FindAllDescendants(cf => cf.ByControlType(ControlType.ComboBox))
-                                          .FirstOrDefault(c => c.Name.Contains(automationId) || c.AutomationId.Contains(automationId)));
+            var cbx = Retry(() =>
+                context.FindFirstDescendant(cf => cf.ByAutomationId(automationId))
+                ?? context.FindAllDescendants(cf => cf.ByControlType(ControlType.ComboBox))
+                          .FirstOrDefault(c => c.Name.Contains(automationId) || c.AutomationId.Contains(automationId)));
             if (cbx == null) return;
 
             FocusSafely(cbx);
@@ -1464,26 +1465,28 @@ namespace HRMITestFlaUI.Module.Setup
 
         private void SetInputTextSafely(AutomationElement context, string automationId, string text)
         {
-            var el = Retry(() => context.FindFirstDescendant(cf => cf.ByAutomationId(automationId)))
-                  ?? Retry(() => context.FindAllDescendants()
-                                         .FirstOrDefault(e => string.Equals(e.AutomationId, automationId, StringComparison.OrdinalIgnoreCase)), 2000)
-                  ?? Retry(() => context.FindAllDescendants(cf => cf.ByControlType(ControlType.Edit))
-                                         .FirstOrDefault(e => e.AutomationId.Contains(automationId, StringComparison.OrdinalIgnoreCase) ||
-                                                              (e.Name != null && e.Name.Contains(automationId, StringComparison.OrdinalIgnoreCase))), 2000);
-
-            // ช่องชื่อกะงานบางหน้าจอไม่มี AutomationId -> หาจาก label 'ชื่อกะงาน'
-            if (el == null && automationId == "devTxtTimeShiftName")
-            {
-                var lbl = context.FindFirstDescendant(cf => cf.ByName("ชื่อกะงาน"));
-                if (lbl != null)
-                {
-                    el = context.FindAllDescendants(cf => cf.ByControlType(ControlType.Edit))
-                                .FirstOrDefault(e => Math.Abs(e.BoundingRectangle.Y - lbl.BoundingRectangle.Y) < 15 &&
-                                                     e.BoundingRectangle.X > lbl.BoundingRectangle.Right);
-                }
-            }
+            // ลองทุกวิธีในรอบเดียวกัน (เดิมแต่ละวิธีมี Retry ของตัวเอง ทำให้ต้องรอครบ timeout ก่อนลองวิธีถัดไป)
+            var el = Retry(() =>
+                context.FindFirstDescendant(cf => cf.ByAutomationId(automationId))
+                ?? context.FindAllDescendants()
+                          .FirstOrDefault(e => string.Equals(e.AutomationId, automationId, StringComparison.OrdinalIgnoreCase))
+                ?? context.FindAllDescendants(cf => cf.ByControlType(ControlType.Edit))
+                          .FirstOrDefault(e => e.AutomationId.Contains(automationId, StringComparison.OrdinalIgnoreCase) ||
+                                               (e.Name != null && e.Name.Contains(automationId, StringComparison.OrdinalIgnoreCase)))
+                ?? FindShiftNameEditByLabel(context, automationId));
 
             if (el != null) ReplaceFieldText(el, text);
+        }
+
+        // ช่องชื่อกะงานบางหน้าจอไม่มี AutomationId -> หาจาก label 'ชื่อกะงาน'
+        private static AutomationElement? FindShiftNameEditByLabel(AutomationElement context, string automationId)
+        {
+            if (automationId != "devTxtTimeShiftName") return null;
+            var lbl = context.FindFirstDescendant(cf => cf.ByName("ชื่อกะงาน"));
+            if (lbl == null) return null;
+            return context.FindAllDescendants(cf => cf.ByControlType(ControlType.Edit))
+                          .FirstOrDefault(e => Math.Abs(e.BoundingRectangle.Y - lbl.BoundingRectangle.Y) < 15 &&
+                                               e.BoundingRectangle.X > lbl.BoundingRectangle.Right);
         }
 
         private void ClearField(AutomationElement context, string automationId)

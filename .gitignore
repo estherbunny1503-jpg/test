@@ -13,3 +13,6 @@
 
 # Local folder publish profiles
 HRMITestFlaUI/Properties/PublishProfiles/FolderProfile*.pubxml
+
+# Local test config (contains credentials)
+test_config.txt

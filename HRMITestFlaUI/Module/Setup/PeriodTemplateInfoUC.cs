@@ -930,7 +930,8 @@ namespace HRMITestFlaUI.Module.Setup
             {
                 try
                 {
-                    if (!InvokeElement(childBtn)) ClickElementByMouseInstant(childBtn);
+                    // ใช้คลิกเมาส์แทน Invoke: ปุ่มนี้เปิด lookup แบบ modal และ UIA Invoke จะ block จนกว่า dialog จะปิด
+                    ClickElementByMouseInstant(childBtn);
                     if ((result = WaitLookup()) != null) return result;
                 }
                 catch { }
@@ -1120,6 +1121,48 @@ namespace HRMITestFlaUI.Module.Setup
             var grid = FindCalculationGrid(form);
             if (grid == null) throw new Exception("หากริดตารางงวดการจ่ายหน้า General ไม่เจอ");
 
+            AutomationElement? FindMonthCell() =>
+                form.FindFirstDescendant(cf => cf.ByName("item 'ประจำเดือน row 0'"))
+                ?? form.FindFirstDescendant(cf => cf.ByName("ประจำเดือน row 0"));
+
+            // GetElementTextSafe คืนชื่อ element ถ้าอ่าน value ไม่ได้ จึงต้องกันชื่อแบบ "... row 0" ออก
+            bool MonthIs(string month)
+            {
+                var c = FindMonthCell();
+                if (c == null) return false;
+                string text = GetElementTextSafe(c);
+                return text.Contains(month) && !text.Contains(" row ");
+            }
+
+            var cell = RetryFind(FindMonthCell, timeoutMs: 2000);
+            if (cell == null)
+            {
+                SetCalculationMonthByPixel(grid, to);
+                return;
+            }
+
+            if (MonthIs(to)) return;
+
+            try { if (cell.Patterns.Value.IsSupported) cell.Patterns.Value.Pattern.SetValue(to); } catch { }
+
+            if (!WaitUntil(() => MonthIs(to), 800))
+            {
+                // คลิกครั้งแรกเลือกเซลล์ ครั้งที่สองเปิด editor แล้วพิมพ์ชื่อเดือน
+                ClickElementByMouseInstant(cell);
+                Thread.Sleep(200);
+                ClickElementByMouseInstant(cell);
+                Thread.Sleep(300);
+                Keyboard.Type(to);
+                Keyboard.Press(VirtualKeyShort.RETURN);
+            }
+
+            // ถ้าเดือนไม่เปลี่ยน ห้ามไปกด Save ต่อ ไม่งั้นจะบันทึกข้อมูลผิดลงฐานข้อมูล
+            if (!WaitUntil(() => MonthIs(to), 1500))
+                throw new Exception($"ตั้งค่าประจำเดือนแถวแรกเป็น '{to}' ไม่สำเร็จ (ค่าปัจจุบัน: '{GetElementTextSafe(FindMonthCell() ?? cell)}')");
+        }
+
+        private void SetCalculationMonthByPixel(AutomationElement grid, string to)
+        {
             var colHeader = grid.FindFirstDescendant(cf => cf.ByName("ประจำเดือน"))
                          ?? grid.FindAllDescendants().FirstOrDefault(e => !string.IsNullOrEmpty(e.Name) && e.Name.Trim().Equals("ประจำเดือน", StringComparison.OrdinalIgnoreCase));
 

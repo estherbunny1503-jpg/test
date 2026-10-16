@@ -50,7 +50,10 @@ namespace HRMITestFlaUI.Base
             }
             else
             {
-                LogFolder = @"D:\TestResults\Logs";
+                // ใช้ไดรฟ์ D: ถ้ามี ถ้าไม่มีให้เก็บไว้ใน Documents แทน
+                LogFolder = Directory.Exists(@"D:\")
+                    ? @"D:\TestResults\Logs"
+                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "TestResults", "Logs");
                 LogFilePath = Path.Combine(LogFolder, $"TestRun_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
             }
 
