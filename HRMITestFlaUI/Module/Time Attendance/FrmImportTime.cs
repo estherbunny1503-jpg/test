@@ -116,34 +116,46 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         {
             _ = Retry(FindDateStartField, 8000)
                 ?? throw new Exception($"หน้าจอ '{ImportMenuLabel}' ไม่เปิดขึ้น (หาช่องวันที่เริ่มต้น '{IdDateStart}' ไม่เจอ)");
+            LogStep("เปิดหน้าจอ Import แล้ว");
             TestProgressHelper.Report(10, "Import screen ready");
 
             FillDateField(IdDateStart, start);
             FillDateField(IdDateEnd, end);
+            LogStep($"กรอกช่วงวันที่ {start} ถึง {end} สำเร็จ");
             TestProgressHelper.Report(25, "Filled date range");
 
             SelectRadioButton(IdRdgImportFileExcel);
+            LogStep("เลือก Import File จาก Excel สำเร็จ");
             TestProgressHelper.Report(30, "Selected Import File from Excel");
 
             BrowseAndSelectFile(fileName);
+            LogStep($"เลือกไฟล์ {fileName} สำเร็จ");
             TestProgressHelper.Report(45, "Selected import file");
 
             ClickNextButton();
+            LogStep("กด Next หลังกรอกข้อมูลสำเร็จ");
             TestProgressHelper.Report(55, "Clicked Next");
 
             ClickImportButton();
+            LogStep("Import ข้อมูลสำเร็จ");
             TestProgressHelper.Report(75, "Imported data");
 
             ClickNextButton();
+            LogStep("กด Next หลัง Import สำเร็จ");
             TestProgressHelper.Report(85, "Clicked Next");
 
             ClickFinishButton();
+            LogStep("กด Finish สำเร็จ");
             TestProgressHelper.Report(100, "Clicked Finish");
         }
+
+        private void LogStep(string message) =>
+            TestLogger.LogSuccess($"{_activeTestName}_{message}", message);
 
         /* ตัวช่วยรัน Scenario: เปิดหน้าจอ -> รัน -> Log ผล -> ปิด dialog ค้าง */
         private void RunScenario(string testName, Action step)
         {
+            _activeTestName = testName;
             try
             {
                 // หน้าจอเปิดอยู่แล้ว (จาก Navigate) ไม่ต้องเปิดซ้ำ — เปิดซ้ำตอนช่องค้นหาเมนูยัง disabled ทำให้ ElementNotEnabledException
@@ -428,6 +440,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private readonly AutomationElement _mainWindow;
         private readonly UIA3Automation _automation;
         private int _totalSuccess = 0, _totalFail = 0;
+        private string _activeTestName = "TestCase_ImportTimeAttendance";
         private const int TimeoutMs = 6000;
         private const int PollMs = 300;
 

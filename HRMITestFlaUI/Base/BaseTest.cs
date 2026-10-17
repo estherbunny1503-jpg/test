@@ -609,7 +609,28 @@ namespace HRMITestFlaUI.Base
                 Thread.Sleep(150);
             }
 
-            throw new Exception($"❌ ไม่พบช่องกรอก '{automationId}' บนหน้า Login ภายในเวลาที่กำหนด");
+            string windowTitle = "(ไม่พบหน้าต่างหลัก)";
+            string controls = "(อ่านรายการ controls ไม่ได้)";
+            try
+            {
+                if (mainWindow != null && mainWindow.IsAvailable)
+                {
+                    windowTitle = mainWindow.Title ?? "(ไม่มีชื่อหน้าต่าง)";
+                    controls = string.Join(" | ", mainWindow.FindAllDescendants()
+                        .Take(100)
+                        .Select(e =>
+                        {
+                            string name = "", id = "", type = "";
+                            try { name = e.Name ?? ""; } catch { }
+                            try { id = e.AutomationId ?? ""; } catch { }
+                            try { type = e.ControlType.ToString(); } catch { }
+                            return $"{type}: Name='{name}', Id='{id}'";
+                        }));
+                }
+            }
+            catch { }
+
+            throw new Exception($"❌ ไม่พบช่องกรอก '{automationId}' บนหน้า Login ภายในเวลาที่กำหนด. Window='{windowTitle}'. Controls: {controls}");
         }
 
         //=========================================

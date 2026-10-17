@@ -24,7 +24,7 @@ namespace HRMITestFlaUI.Base
         private static EmpWorkScheListUC empWorkScheListUC = null!;
         private static FrmImportTime frmImportTime = null!;
         private static FixTimeManualWinUC fixTimeManualWinUC = null!;
- 
+        private static FrmTimeRecordWiz frmTimeRecordWiz = null!;
         private static FrmPPprocessTreeWinUC frmPPprocessTreeWinUC = null!;
 
         private const int TotalScreensInTimeAttendance = 6;
@@ -43,6 +43,7 @@ namespace HRMITestFlaUI.Base
                 // ผูก Page Objects ทั้ง 6 หน้าจอ (EmpWorkScheListUC เป็นลำดับแรก)
                 empWorkScheListUC = new EmpWorkScheListUC(mainWindow, automation);
                 frmImportTime = new FrmImportTime(mainWindow, automation);
+                frmTimeRecordWiz = new FrmTimeRecordWiz(mainWindow, automation);
                 fixTimeManualWinUC = new FixTimeManualWinUC(mainWindow, automation);
                 frmPPprocessTreeWinUC = new FrmPPprocessTreeWinUC(mainWindow, automation);
             }
@@ -69,13 +70,18 @@ namespace HRMITestFlaUI.Base
                 frmImportTime.NavigateToImportTimeAttendanceDataUC, frmImportTime.RunAllValidationTests);
 
         [TestMethod]
-        public void Test03_FixTimeManualWinUC()
-            => RunPage(3, "FixTimeManual", "บันทึกแก้ไข/ปรับปรุงเวลา (Manual)",
+        public void Test03_FrmTimeRecordWiz()
+            => RunPage(3, "FrmTimeRecordWiz", "ประมวณผลเวลาการทำงาน",
+                frmTimeRecordWiz.NavigateToTimeRecordWiz, frmTimeRecordWiz.RunAllValidationTests);
+
+        [TestMethod]
+        public void Test04_FixTimeManualWinUC()
+            => RunPage(4, "FixTimeManual", "บันทึกแก้ไข/ปรับปรุงเวลา (Manual)",
                 fixTimeManualWinUC.NavigateToFixTimeManualWinUC, fixTimeManualWinUC.RunAllValidationTests);
 
         [TestMethod]
-        public void Test04_FrmPPprocessTreeWinUC()
-            => RunPage(4, "PPprocessTreeWin", "ประมวลผลจากระบบเวลาเข้าสู่ระบบเงินเดือน (แบบแจกแจง)",
+        public void Test05_FrmPPprocessTreeWinUC()
+            => RunPage(5, "PPprocessTreeWin", "ประมวลผลจากระบบเวลาเข้าสู่ระบบเงินเดือน (แบบแจกแจง)",
                 frmPPprocessTreeWinUC.NavigateToPPprocessTreeWinUC, frmPPprocessTreeWinUC.RunAllValidationTests);
 
         // -------------------------------------------------------------

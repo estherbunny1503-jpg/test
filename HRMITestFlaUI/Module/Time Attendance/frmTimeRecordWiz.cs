@@ -15,7 +15,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
 {
     /// <summary>
     /// ทดสอบหน้าจอ "ประมวลผลเวลาการทำงาน" (frmTimeRecordWiz) — Wizard กด Next ไปทีละหน้า
-    /// ขั้นตอนอ้างอิง TestStep.xlsx (ชีท "ประมวลผลเวลาการทำงาน") แถว 6
+    /// ขั้นตอนอ้างอิง TestStep.ods (ชีท "ประมวลผลเวลาการทำงาน") แถว 6
     /// </summary>
     internal class FrmTimeRecordWiz
     {
@@ -23,6 +23,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private readonly AutomationElement _mainWindow;
         private readonly UIA3Automation _automation;
         private int _totalSuccess = 0, _totalFail = 0;
+        private string _activeTestName = "TestCase_TimeRecordWiz";
 
         // ขั้นตอนที่ไม่สำเร็จในแถวปัจจุบัน (ทำขั้นตอนถัดไปต่อจนครบ แล้วค่อยสรุปว่าแถวนั้น FAIL)
         private readonly List<string> _stepErrors = new List<string>();
@@ -143,6 +144,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         /* Method รัน 1 แถว: เปิดหน้าจอถ้ายังไม่เปิด -> ทำทุกขั้นตอน -> ถ้ามีขั้นตอนพลาดถือว่าแถวนั้น FAIL */
         private void RunScenario(string testName, bool navigate, Action step)
         {
+            _activeTestName = testName;
             try
             {
                 if (navigate && FindFormRoot() == null) OpenMenu();
@@ -159,22 +161,29 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         /* Method ทำขั้นตอนหนึ่ง ถ้าไม่สำเร็จให้จดไว้แล้วทำขั้นตอนถัดไปต่อ + รายงาน Progress */
         private void Do(string stepName, Action action, int progress)
         {
-            try { action(); }
-            catch (Exception ex) { _stepErrors.Add($"{stepName}: {ex.Message}"); }
+            try { action(); LogStepSuccess(stepName); }
+            catch (Exception ex) { _stepErrors.Add($"{stepName}: {ex.Message}"); LogStepFailure(stepName, ex); }
             TestProgressHelper.Report(progress, stepName);
         }
 
         /* Method ขั้นตอนที่ถ้าไม่สำเร็จจะทำต่อไม่ได้ (เช่น เปลี่ยนหน้า Wizard) — หยุดแถวนี้ทันที */
         private void Step(string stepName, Action action, int progress)
         {
-            try { action(); }
+            try { action(); LogStepSuccess(stepName); }
             catch (Exception ex)
             {
                 _stepErrors.Add($"{stepName}: {ex.Message}");
+                LogStepFailure(stepName, ex);
                 throw new Exception(string.Join(" || ", _stepErrors));
             }
             TestProgressHelper.Report(progress, stepName);
         }
+
+        private void LogStepSuccess(string stepName) =>
+            TestLogger.LogSuccess($"{_activeTestName}_{stepName}", $"สำเร็จ: {stepName}");
+
+        private void LogStepFailure(string stepName, Exception ex) =>
+            TestLogger.LogFailure($"{_activeTestName}_{stepName}", $"ไม่สำเร็จ: {ex.Message}");
 
         // -------------------------------------------------------------
         // UI Helpers & Core Navigation

@@ -16,7 +16,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
 {
     /// <summary>
     /// ทดสอบหน้าจอ "ประมวลผลจากระบบเวลาเข้าสู่ระบบเงินเดือน (แบบแจกแจง)" (FrmPPprocessTreeWinUC)
-    /// ขั้นตอนอ้างอิง TestStep.xlsx (ชีท "เวลาเข้าเงินเดือน (แจกแจง)") แถว 6
+    /// ขั้นตอนอ้างอิง TestStep.ods (ชีท "เวลาเข้าเงินเดือน (แจกแจง)") แถว 6
     /// </summary>
     public class FrmPPprocessTreeWinUC
     {
@@ -126,6 +126,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         /* รัน 1 แถว: เปิดหน้าจอถ้ายังไม่เปิด -> ทำทุกขั้นตอน -> ถ้ามีขั้นตอนพลาดถือว่าแถวนั้น FAIL */
         private void RunScenario(string testName, bool navigate, Action step)
         {
+            _activeTestName = testName;
             try
             {
                 if (navigate && FindFormRoot() == null) OpenMenu();
@@ -526,6 +527,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private readonly AutomationElement _mainWindow;
         private readonly UIA3Automation _automation;
         private int _totalSuccess = 0, _totalFail = 0;
+        private string _activeTestName = "TestCase_PPprocessTreeWinUC";
         private const int TimeoutMs = 6000;
         private const int PollMs = 300;
 
@@ -549,18 +551,31 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         /* ทำขั้นตอนหนึ่ง ถ้าไม่สำเร็จให้จดไว้แล้วทำขั้นตอนถัดไปต่อ + รายงาน Progress */
         private void Do(string stepName, Action action, int progress)
         {
-            try { action(); }
-            catch (Exception ex) { _stepErrors.Add($"{stepName}: {ex.Message}"); }
+            try
+            {
+                action();
+                TestLogger.LogSuccess($"{_activeTestName}_{stepName}", $"สำเร็จ: {stepName}");
+            }
+            catch (Exception ex)
+            {
+                _stepErrors.Add($"{stepName}: {ex.Message}");
+                TestLogger.LogFailure($"{_activeTestName}_{stepName}", $"ไม่สำเร็จ: {ex.Message}");
+            }
             TestProgressHelper.Report(progress, stepName);
         }
 
         /* ขั้นตอนที่ถ้าไม่สำเร็จจะทำต่อไม่ได้ — หยุดแถวนี้ทันที */
         private void Step(string stepName, Action action, int progress)
         {
-            try { action(); }
+            try
+            {
+                action();
+                TestLogger.LogSuccess($"{_activeTestName}_{stepName}", $"สำเร็จ: {stepName}");
+            }
             catch (Exception ex)
             {
                 _stepErrors.Add($"{stepName}: {ex.Message}");
+                TestLogger.LogFailure($"{_activeTestName}_{stepName}", $"ไม่สำเร็จ: {ex.Message}");
                 throw new Exception(string.Join(" || ", _stepErrors));
             }
             TestProgressHelper.Report(progress, stepName);

@@ -26,6 +26,8 @@ namespace HRMITestFlaUI.Module.Time_Attendance
 
         private int _totalSuccess = 0;
         private int _totalFail = 0;
+        private string _activeTestName = "TestCase_EmpWorkScheListUC";
+        private int _stepLogIndex;
 
         // ── Delay Constants ──
         private const int MenuTransitionDelayMs = 150;
@@ -222,10 +224,12 @@ namespace HRMITestFlaUI.Module.Time_Attendance
 
         private void RunScenarioStep(string testName, Action step)
         {
+            _activeTestName = testName;
+            _stepLogIndex = 0;
             try
             {
                 step();
-                LogSuccessCounted(testName, "ทำสำเร็จตามขั้นตอน Wizard ครบทุกสเต็ป");
+                LogSuccessCounted(testName, "ทำรายการตามขั้นตอนที่กำหนดสำเร็จครบถ้วน");
             }
             catch (Exception ex)
             {
@@ -237,7 +241,8 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             }
         }
 
-        private void LogStep(string message) { }
+        private void LogStep(string message) =>
+            TestLogger.LogSuccess($"{_activeTestName}_Step{++_stepLogIndex:00}", message);
 
         /* ปิดวิซาร์ดที่ค้างหลังจบเคส — กดเฉพาะปุ่มของหน้าต่าง HRMI ที่เป็นวิซาร์ดจริง
            (เดิมหาปุ่มชื่อ "Cancel" ที่ไหนก็ได้บน desktop แล้วกด เคยไปโดนปุ่มที่ไม่ใช่วิซาร์ด ทำให้ HRMI ค้างทั้งเคสถัดไป) */
@@ -267,6 +272,17 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             }
         }
 
+        /* หา control ตาม AutomationId: ค้นในวิซาร์ด/Pop-up ของ HRMI ก่อน (เร็ว) แล้วค่อยค้นใน context (หน้าหลักทั้งหน้า ช้า) */
+        private AutomationElement? FindById(AutomationElement context, string automationId) =>
+            (ReferenceEquals(context, _mainWindow) ? FindFirstInHrmi(cf => cf.ByAutomationId(automationId)) : null)
+            ?? context.FindFirstDescendant(cf => cf.ByAutomationId(automationId));
+
+        /* หาปุ่มนำทางของวิซาร์ด (Next/Finish): ค้นในหน้าต่างวิซาร์ดก่อน (เล็ก เร็ว) แล้วค่อยค้นทั้งหน้าหลัก
+           — หน้าหลักมีตารางพนักงานทั้งหน้า ค้นทีละครั้งเป็นวินาที และเดิมค้นหลายรอบต่อขั้น ทำให้ทั้งเทสช้ามาก */
+        private AutomationElement? FindNavButton(string name) =>
+            FindFirstInHrmi(cf => cf.ByName(name).And(cf.ByControlType(ControlType.Button)))
+            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName(name).And(cf.ByControlType(ControlType.Button)));
+
         /* หา element ในหน้าต่างของ HRMI เท่านั้น (แทนการค้นทั้ง desktop ซึ่งช้าและอาจเจอปุ่มชื่อเดียวกันของโปรแกรมอื่น) */
         private AutomationElement? FindFirstInHrmi(Func<FlaUI.Core.Conditions.ConditionFactory, FlaUI.Core.Conditions.ConditionBase> condition)
         {
@@ -290,18 +306,26 @@ namespace HRMITestFlaUI.Module.Time_Attendance
                 try { return w.Patterns.Window.IsSupported && w.Patterns.Window.Pattern.IsModal.ValueOrDefault; }
                 catch { return false; }
             }
-            // เผื่อวิซาร์ดไม่รายงานว่าเป็น modal: ดูจากปุ่ม Next / Finish
-            bool IsWizard(AutomationElement w)
+            // หน้าจอแท็บ (MDI) มี AutomationId เป็นตัวเลข ("1", "2") ส่วนวิซาร์ด/Pop-up ไม่มี — ใช้แยกแบบไม่ต้องค้นข้างใน
+            // (เดิมค้นปุ่ม Next ในทุกหน้าต่าง รวมหน้าจอแท็บที่มีตารางพนักงานทั้งหน้า ช้ามากและทำทุกครั้งที่หาปุ่ม)
+            static bool IsPopupLike(AutomationElement w)
             {
-                try { return w.FindFirstDescendant(cf => cf.ByName(NextButtonName).Or(cf.ByName(FinishButtonName))) != null; }
+                try { return IsModal(w) || string.IsNullOrEmpty(w.AutomationId) || !w.AutomationId.All(char.IsDigit); }
                 catch { return false; }
             }
 
             // หน้าต่างระดับบนของ HRMI (popup / dropdown ไม่ใช่ modal แต่อยู่ระดับบน) + หน้าต่าง modal ที่อยู่ใต้หน้าหลัก
             return _automation.GetDesktop().FindAllChildren(cf => cf.ByProcessId(pid))
-                .Concat(_mainWindow.FindAllDescendants(cf => cf.ByControlType(ControlType.Window)).Where(w => IsModal(w) || IsWizard(w))) // Pop-up อาจซ้อนอยู่ใต้วิซาร์ด
+                .Concat(_mainWindow.FindAllChildren(cf => cf.ByControlType(ControlType.Window)).Where(IsPopupLike)
+                    .SelectMany(w => new[] { w }.Concat(SafeChildWindows(w)))) // Pop-up อาจซ้อนอยู่ใต้วิซาร์ด (ลงไปอีกชั้นเดียว)
                 .Where(w => { try { return w.Properties.NativeWindowHandle.ValueOrDefault != mainHandle; } catch { return false; } })
                 .ToList();
+        }
+
+        private static IEnumerable<AutomationElement> SafeChildWindows(AutomationElement w)
+        {
+            try { return w.FindAllChildren(cf => cf.ByControlType(ControlType.Window)); }
+            catch { return Array.Empty<AutomationElement>(); }
         }
 
         /* หลังกด Finish HRMI ประมวลผลต่อ (มีหน้าต่างประมวลผล) — รอให้เสร็จก่อนเริ่มเคสถัดไป ห้ามไปกดปุ่มใดๆ ระหว่างนี้ */
@@ -341,23 +365,29 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         {
             ClickMoreAction();
             ClickMoreActionItem(ActionSetScheduleForGroup);
+            LogStep("เปิดรายการกำหนดตารางการทำงานของพนักงานแบบรวมแล้ว");
 
             FillDateField(_mainWindow, IdDateStart, start, useBuddhistYear: true);
             FillDateField(_mainWindow, IdDateEnd, end, useBuddhistYear: true);
+            LogStep($"กำหนดช่วงวันที่ {start:dd/MM/yyyy} ถึง {end:dd/MM/yyyy} แล้ว");
 
             SelectRadioButton(_mainWindow, IdRdgSetWorkSchedule);
             SelectRadioGroupOption(_mainWindow, IdRdgAddWorkType, workType);
 
             SelectWorkSchedulePattern(patternCode);
+            LogStep($"เลือกรูปแบบตารางการทำงาน {patternCode} แล้ว");
 
             ClickWizardNavButton(NextButtonName);
+            LogStep("ไปยังหน้ากำหนดเงื่อนไขแล้ว");
 
             EnsureConditionsTabActive(); // TestStep: กดปุ่มแสดงข้อมูลพนักงานอย่างเดียว (ไม่ติ๊กเงื่อนไข)
             ClickWizardButton(IdBtnShowEmployeeData, fallbackName: "แสดงข้อมูลพนักงาน");
+            LogStep("แสดงรายการพนักงานตามเงื่อนไขแล้ว");
             ClickRecheckEmployeeDataIfPresent();
             // ★ รอพิเศษ 1 นาที เฉพาะตอนคลิก Next ครั้งแรกหลังจากนี้ (ดูใน CompleteWizard)
             // เพราะเป็นจุดที่แอปต้องประมวลผลสร้าง dataset พนักงาน (GenIDGroupAndGenerateDatetime)
             CompleteWizard(firstNextClickExtraWaitMs: 120000);
+            LogStep("บันทึกการกำหนดตารางการทำงานเสร็จแล้ว");
         }
 
         /// <summary>
@@ -368,18 +398,23 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         {
             ClickMoreAction();
             ClickMoreActionItem(ActionSetScheduleForGroup);
+            LogStep("เปิดรายการคัดลอกตารางการทำงานแล้ว");
             FillDateField(_mainWindow, IdDateStart, start, useBuddhistYear: true);
             FillDateField(_mainWindow, IdDateEnd, end, useBuddhistYear: true);
+            LogStep($"กำหนดช่วงวันที่ {start:dd/MM/yyyy} ถึง {end:dd/MM/yyyy} แล้ว");
             SelectRadioButton(_mainWindow, IdRdgCopyWorkSche);
             SelectEmployeeByCode(SampleEmployeeCodeForCopyShortcut);
+            LogStep($"เลือกพนักงาน {SampleEmployeeCodeForCopyShortcut} แล้ว");
             ClickWizardNavButton(NextButtonName);
 
             EnsureConditionsTabActive();
             ClickWizardButton(IdBtnShowEmployeeData, fallbackName: "แสดงข้อมูลพนักงาน");
+            LogStep("แสดงรายการพนักงานแล้ว");
             ClickRecheckEmployeeDataIfPresent();
             // ★ รอพิเศษ 1 นาที เฉพาะตอนคลิก Next ครั้งแรกหลังจากนี้ (ดูใน CompleteWizard)
             // เพราะเป็นจุดที่แอปต้องประมวลผลสร้าง dataset พนักงาน (GenIDGroupAndGenerateDatetime)
             CompleteWizard(firstNextClickExtraWaitMs: 120000);
+            LogStep("บันทึกการคัดลอกตารางการทำงานเสร็จแล้ว");
         }
 
         /// <summary>
@@ -389,22 +424,27 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         {
             ClickMoreAction();
             ClickMoreActionItem(ActionSetScheduleForGroup);
+            LogStep("เปิดรายการกำหนดวันหยุดแล้ว");
             FillDateField(_mainWindow, IdDateStart, start, useBuddhistYear: true);
             FillDateField(_mainWindow, IdDateEnd, end, useBuddhistYear: true);
+            LogStep($"กำหนดช่วงวันที่วันหยุด {start:dd/MM/yyyy} ถึง {end:dd/MM/yyyy} แล้ว");
             SelectRadioButton(_mainWindow, IdRdgHolidaySche);
 
             FillTextBox(_mainWindow, IdTxtHolidayTopic, "หยุดเพื่อไปหาสิ่งใหม่ๆ");
             ClickCheckbox(IdChkReplaceHoliday);
 
             SetHolidayDays("devChkSatHoliday", "devChkSunHoliday");
+            LogStep("กำหนดหัวข้อวันหยุดและเลือกวันเสาร์-อาทิตย์แล้ว");
 
             ClickWizardNavButton(NextButtonName);
             EnsureConditionsTabActive();
             ClickWizardButton(IdBtnShowEmployeeData, fallbackName: "แสดงข้อมูลพนักงาน");
+            LogStep("แสดงรายการพนักงานสำหรับวันหยุดแล้ว");
             ClickRecheckEmployeeDataIfPresent();
             // ★ รอพิเศษ 1 นาที เฉพาะตอนคลิก Next ครั้งแรกหลังจากนี้ (ดูใน CompleteWizard)
             // เพราะเป็นจุดที่แอปต้องประมวลผลสร้าง dataset พนักงาน (GenIDGroupAndGenerateDatetime)
             CompleteWizard(firstNextClickExtraWaitMs: 120000);
+            LogStep("บันทึกวันหยุดเสร็จแล้ว");
         }
 
         /// <summary>
@@ -415,13 +455,17 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         {
             ClickMoreAction();
             ClickMoreActionItem(ActionImportSchedule);
+            LogStep("เปิดรายการ Import ตารางการทำงานแล้ว");
 
             filePath ??= TestDataPaths.Find("Import Employee Work Schedule", "ImportEmployeeWorkSchedule")
                 ?? throw new FileNotFoundException($"ไม่พบไฟล์ 'Import Employee Work Schedule' (.xlsx/.xlsm) ในโฟลเดอร์ {TestDataPaths.Folder}");
             BrowseAndSelectFile(filePath);
+            LogStep($"เลือกไฟล์นำเข้า {Path.GetFileName(filePath)} แล้ว");
             FillDateField(_mainWindow, IdDateStart, start, useBuddhistYear: true);
             FillDateField(_mainWindow, IdDateEnd, end, useBuddhistYear: true);
+            LogStep($"กำหนดช่วงวันที่ {start:dd/MM/yyyy} ถึง {end:dd/MM/yyyy} แล้ว");
             CompleteWizard();
+            LogStep("Import ตารางการทำงานเสร็จแล้ว");
         }
 
         /// <summary>
@@ -432,17 +476,22 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private void CopyScheduleOfEmployee(DateTime start, DateTime end, string employeeCode)
         {
             SelectMainGridRow(employeeCode);
+            LogStep($"เลือกพนักงาน {employeeCode} จากตารางแล้ว");
             ClickMoreAction();
             ClickMoreActionItem(ActionCopyScheduleOfEmployee);
+            LogStep("เปิดรายการคัดลอกตารางของพนักงานแล้ว");
             FillDateField(_mainWindow, IdDateStart, start, useBuddhistYear: true);
             FillDateField(_mainWindow, IdDateEnd, end, useBuddhistYear: true);
+            LogStep($"กำหนดช่วงวันที่ {start:dd/MM/yyyy} ถึง {end:dd/MM/yyyy} แล้ว");
             ClickWizardNavButton(NextButtonName);
 
             ClickWizardButton(IdBtnShowEmployeeData, fallbackName: "แสดงข้อมูลพนักงาน");
+            LogStep("แสดงรายการพนักงานสำหรับคัดลอกตารางแล้ว");
             ClickRecheckEmployeeDataIfPresent();
             // ★ รอพิเศษ 1 นาที เฉพาะตอนคลิก Next ครั้งแรกหลังจากนี้ (ดูใน CompleteWizard)
             // เพราะเป็นจุดที่แอปต้องประมวลผลสร้าง dataset พนักงาน (GenIDGroupAndGenerateDatetime)
             CompleteWizard(firstNextClickExtraWaitMs: 120000);
+            LogStep("คัดลอกตารางการทำงานเสร็จแล้ว");
         }
 
         /* คลิกเลือกแถวพนักงานในตารางหลักของหน้าจอ (หาเซลล์ที่ค่าตรงกับรหัส ไม่ใช่ช่องค้นหา) */
@@ -487,32 +536,93 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         {
             ClickMoreAction();
             ClickMoreActionItem(ActionCancelScheduleForGroup);
+            LogStep("เปิดรายการยกเลิกตารางการทำงานแบบรวมแล้ว");
             FillDateField(_mainWindow, IdDateStart, start, useBuddhistYear: true);
             FillDateField(_mainWindow, IdDateEnd, end, useBuddhistYear: true);
+            LogStep($"กำหนดช่วงวันที่ {start:dd/MM/yyyy} ถึง {end:dd/MM/yyyy} แล้ว");
 
-            // ผลที่คาดหวัง
-            if (cancelWorkSchedule)
-                ClickCheckbox(IdChkCancelSchedule, fallbackName: "ยกเลิกกะงาน");
-            if (cancelWorkHoliday)
-                ClickCheckbox(IdChkCancelWorkHoliday, fallbackName: "ยกเลิกวันหยุดกะ");
+            // ช่องช่วงรหัสกะงานอาจยัง disabled จนกว่าจะระบุชนิดการยกเลิกก่อน
+            // TestStep กำหนดให้เลือกผลที่คาดหวังก่อนกรอกช่วงข้อมูล จึงตั้งค่าตรงนี้ก่อนเปิด picker
+            SetCancelOptions(cancelWorkSchedule, cancelWorkHoliday);
+            LogStep($"กำหนดตัวเลือกยกเลิกกะงาน={cancelWorkSchedule}, ยกเลิกวันหยุดกะ={cancelWorkHoliday} แล้ว");
 
             // ช่วงรหัสกะงาน
             if (workGroupFrom != null && workGroupTo != null)
+            {
                 SelectRange(IdRangeShiftCode, workGroupFrom, workGroupTo);
+                LogStep($"กำหนดช่วงรหัสกะงาน {workGroupFrom} ถึง {workGroupTo} แล้ว");
+            }
             // ช่วงหน่วยงาน
             SelectRange(IdRangeOrgUnit, orgFrom, orgTo);
+            LogStep($"กำหนดช่วงหน่วยงาน {orgFrom} ถึง {orgTo} แล้ว");
             // ช่วงกลุ่มพนักงาน
             SelectRange(IdRangeEmpGroup, empGroupFrom, empGroupTo);
+            LogStep($"กำหนดช่วงกลุ่มพนักงาน {empGroupFrom} ถึง {empGroupTo} แล้ว");
             // ประเภทพนักงาน (คลิกลูกศร dropdown แล้วติ๊กเฉพาะรายการที่ระบุ)
             SelectEmployeeTypeDropdown(empTypeChecks);
+            LogStep("เลือกประเภทพนักงานตามกรณีทดสอบแล้ว");
             // ช่วงตำแหน่งงาน
             SelectRange(IdRangePosition, positionFrom, positionTo);
+            LogStep($"กำหนดช่วงตำแหน่ง {positionFrom} ถึง {positionTo} แล้ว");
             // ช่วงระดับพนักงาน
             SelectRange(IdRangeEmpLevel, levelFrom, levelTo);
+            LogStep($"กำหนดช่วงระดับพนักงาน {levelFrom} ถึง {levelTo} แล้ว");
             // ช่วงรหัสพนักงาน
             SelectRange(IdRangeEmployee, empCodeFrom, empCodeTo);
+            LogStep($"กำหนดช่วงรหัสพนักงาน {empCodeFrom} ถึง {empCodeTo} แล้ว");
+
+            // ผลที่คาดหวัง — ตั้งค่าเป็นขั้นสุดท้ายก่อน Next (ขั้นอื่นมี popup/dropdown ที่อาจทำให้ติ๊กหลุด)
+            // และตั้งทั้ง 2 ช่องให้ตรงชัดเจน (ช่องที่ไม่ต้องการ = เอาติ๊กออก) เผื่อวิซาร์ดจำค่าจากรอบก่อน
+            SetCancelOptions(cancelWorkSchedule, cancelWorkHoliday);
+            LogStep($"กำหนดตัวเลือกยกเลิกกะงาน={cancelWorkSchedule}, ยกเลิกวันหยุดกะ={cancelWorkHoliday} แล้ว");
+
+            // ถ้า HRMI ยังเตือน "กรุณากำหนด การยกเลิก อย่างใดอย่างหนึ่ง" ตอนกด Next: กด OK แล้วติ๊กใหม่ ลองได้อีก 2 รอบ
+            for (int attempt = 0; ; attempt++)
+            {
+                ClickWizardNavButton(NextButtonName); // (กล่องเตือนอาจถูกกด OK ไปแล้วใน ClickWizardNavButton)
+                DismissCancelOptionWarning();
+                if (!IsStillOnCancelOptionsPage()) break;
+                if (attempt >= 2) throw new Exception("HRMI เตือน \"กรุณากำหนด การยกเลิก อย่างใดอย่างหนึ่ง\" ซ้ำ — ติ๊กช่องยกเลิกไม่ติด");
+                SetCancelOptions(cancelWorkSchedule, cancelWorkHoliday);
+            }
 
             CompleteWizard();
+        }
+
+        private void SetCancelOptions(bool cancelWorkSchedule, bool cancelWorkHoliday)
+        {
+            SetCheckbox(IdChkCancelSchedule, cancelWorkSchedule, fallbackName: "ยกเลิกกะงาน");
+            SetCheckbox(IdChkCancelWorkHoliday, cancelWorkHoliday, fallbackName: "ยกเลิกวันหยุดกะ");
+        }
+
+        /* ยังอยู่หน้าแรกของวิซาร์ดยกเลิก (ช่องติ๊กยกเลิกยังมองเห็น) = กด Next แล้วไม่ผ่าน */
+        private bool IsStillOnCancelOptionsPage()
+        {
+            try
+            {
+                var chk = FindById(_mainWindow, IdChkCancelWorkHoliday) ?? FindFirstInHrmi(cf => cf.ByAutomationId(IdChkCancelWorkHoliday));
+                return chk != null && !chk.IsOffscreen && !chk.BoundingRectangle.IsEmpty;
+            }
+            catch { return false; }
+        }
+
+        /* ถ้ามีกล่อง "กรุณากำหนด การยกเลิก" ของ HRMI ให้กด OK แล้วคืน true */
+        private bool DismissCancelOptionWarning()
+        {
+            foreach (var w in FindHrmiWindows())
+            {
+                try
+                {
+                    if (w.FindFirstDescendant(cf => cf.ByName(NextButtonName)) != null) continue; // ตัววิซาร์ด
+                    bool isWarning = w.FindAllDescendants().Any(e => { try { return (e.Name ?? "").Contains("กรุณากำหนด การยกเลิก"); } catch { return false; } });
+                    if (!isWarning) continue;
+                    if (!ClickDialogButton(w, "OK", 1000)) ClickDialogButton(w, "&OK", 500);
+                    Thread.Sleep(300);
+                    return true;
+                }
+                catch { }
+            }
+            return false;
         }
 
         /// <summary>
@@ -529,11 +639,19 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private void PickRangeValue(string rangeAutomationId, string buttonEditId, string code, bool useLastRowIfMissing)
         {
             string label = $"{rangeAutomationId}.{buttonEditId}";
-            var range = RetryFind(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId(rangeAutomationId)), timeoutMs: 5000, pollMs: 250)
+            TestLogger.LogInfo(_activeTestName, $"กำลังเปิดตัวเลือก {label} เพื่อเลือกรหัส '{code}'");
+            var range = RetryFind(() => FindById(_mainWindow, rangeAutomationId), timeoutMs: 5000, pollMs: 250)
                 ?? throw new Exception($"หาช่วงข้อมูล '{rangeAutomationId}' ไม่เจอ");
             var container = range.FindFirstDescendant(cf => cf.ByAutomationId(buttonEditId))
                 ?? throw new Exception($"หาช่อง '{buttonEditId}' ใน '{rangeAutomationId}' ไม่เจอ");
             WaitUntilEnabled(container, timeoutMs: 3000);
+
+            // จำหน้าต่าง HRMI ก่อนคลิก เพื่อระบุ popup ที่ถูกเปิดจากปุ่มนี้โดยตรง แม้ grid ยังไม่มี
+            // DataItem หรือปุ่ม Select ยังไม่ถูก expose ผ่าน UIA
+            var windowsBeforeClick = FindHrmiWindows()
+                .Select(w => { try { return w.Properties.NativeWindowHandle.ValueOrDefault; } catch { return IntPtr.Zero; } })
+                .Where(h => h != IntPtr.Zero)
+                .ToHashSet();
 
             var dotsButton = container.FindAllDescendants(cf => cf.ByControlType(ControlType.Button)).LastOrDefault();
             if (dotsButton != null) ClickElement(dotsButton);
@@ -543,13 +661,28 @@ namespace HRMITestFlaUI.Module.Time_Attendance
                 Mouse.Click(new System.Drawing.Point((int)r.Right - 9, (int)(r.Top + r.Height / 2)));
             }
 
-            var dialog = RetryFind(FindHrmiPickerDialog, timeoutMs: 6000, pollMs: 250)
-                ?? throw new Exception($"กด '...' ของ {label} แล้วไม่พบ Pop-up เลือกข้อมูล");
+            // ถ้าปุ่มลูกไม่เปิด popup ให้ลองคลิกตำแหน่งปุ่ม ... จริงที่ขอบขวาของ ButtonEdit
+            AutomationElement? dialog = RetryFind(() => FindHrmiPickerDialog(windowsBeforeClick), timeoutMs: 2500, pollMs: 200);
+            if (dialog == null)
+            {
+                var r = container.BoundingRectangle;
+                Mouse.MoveTo(new System.Drawing.Point((int)r.Right - 9, (int)(r.Top + r.Height / 2)));
+                Thread.Sleep(80);
+                Mouse.Click(MouseButton.Left);
+                dialog = RetryFind(() => FindHrmiPickerDialog(windowsBeforeClick), timeoutMs: 6000, pollMs: 200);
+            }
+            dialog ??= RetryFind(() => FindHrmiPickerDialog(), timeoutMs: 1000, pollMs: 200);
+            if (dialog == null)
+                throw new Exception($"กด '...' ของ {label} แล้วไม่พบ Pop-up เลือกข้อมูล; หน้าต่าง HRMI ที่พบ: {DescribeHrmiWindows()}");
+            LogStep($"เปิด popup เลือกข้อมูลของ {label} แล้ว");
 
-            // รอให้ตารางใน Pop-up โหลดข้อมูล (เซลล์มีค่า)
-            RetryFind(() => dialog.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem))
+            // บาง RangeManager เปิดหน้าต่างเลือกข้อมูลก่อน แล้วค่อย bind ตาราง (โดยเฉพาะช่วงรหัสกะงาน)
+            // อย่าถือว่าพบ popup แล้วแปลว่าข้อมูลพร้อม: รอเซลล์ที่มีค่าจริงก่อนค้นหารหัส/เลือกแถว
+            var loadedCell = RetryFind(() => dialog.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem))
                 .FirstOrDefault(c => { try { return c.Patterns.Value.IsSupported && !string.IsNullOrWhiteSpace(c.Patterns.Value.Pattern.Value.Value); } catch { return false; } }),
-                timeoutMs: 5000, pollMs: 200);
+                timeoutMs: 15000, pollMs: 250);
+            if (loadedCell == null)
+                throw new Exception($"Pop-up ของ {label} เปิดแล้ว แต่ตารางไม่มีข้อมูลหลังรอ 15 วินาที");
 
             var row = FindRowByScanningVisibleElements(dialog, code);
             if (row == null)
@@ -562,14 +695,15 @@ namespace HRMITestFlaUI.Module.Time_Attendance
                 TestLogger.LogInfo("EmpWorkScheListUC", $"ไม่พบรหัส '{code}' ใน {label} — ใช้ '{used}' ({(useLastRowIfMissing ? "แถวสุดท้าย" : "แถวแรก")}) แทน");
             }
             SelectRowAndConfirm(dialog, row, $"Pop-up {label}");
+            LogStep($"เลือก '{code}' ใน {label} แล้ว");
 
             // กด Select ถ้ายังไม่ปิด
-            if (RetryFind(FindHrmiPickerDialog, timeoutMs: 600, pollMs: 200) is AutomationElement still)
+            if (RetryFind(() => FindHrmiPickerDialog(), timeoutMs: 600, pollMs: 200) is AutomationElement still)
             {
                 var select = still.FindFirstDescendant(cf => cf.ByName("Select").And(cf.ByControlType(ControlType.Button)))
                              ?? still.FindFirstDescendant(cf => cf.ByName("Select"));
                 if (select != null) ClickButtonRobust(select);
-                if (RetryFind(FindHrmiPickerDialog, timeoutMs: 2000, pollMs: 200) != null)
+                if (RetryFind(() => FindHrmiPickerDialog(), timeoutMs: 2000, pollMs: 200) != null)
                     throw new Exception($"เลือกแถวแล้ว Pop-up ของ {label} ยังไม่ปิด");
             }
         }
@@ -593,7 +727,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             {
                 AutomationElement scope = _mainWindow;
                 if (parentAutomationId != null)
-                    scope = _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId(parentAutomationId))
+                    scope = FindById(_mainWindow, parentAutomationId)
                         ?? throw new Exception($"หาช่วงข้อมูล '{parentAutomationId}' ไม่เจอ");
 
                 var container = scope.FindFirstDescendant(cf => cf.ByAutomationId(automationId))
@@ -635,7 +769,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             AutomationElement? edit = null;
             RetryAction<object?>(() =>
             {
-                var combo = _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId(IdChkComboEmpType))
+                var combo = FindById(_mainWindow, IdChkComboEmpType)
                     ?? throw new Exception($"หา dropdown ประเภทพนักงาน '{IdChkComboEmpType}' ไม่เจอ");
                 WaitUntilEnabled(combo, timeoutMs: 2000);
                 edit = combo.FindFirstDescendant(cf => cf.ByAutomationId(IdChkComboEmpTypeEdit)) ?? combo;
@@ -779,7 +913,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         {
             RetryAction<object?>(() =>
             {
-                var container = context.FindFirstDescendant(cf => cf.ByAutomationId(automationId))
+                var container = FindById(context, automationId)
                     ?? throw new Exception($"หา radio button '{automationId}' ไม่เจอ");
                 WaitUntilEnabled(container, timeoutMs: 2000);
 
@@ -1215,7 +1349,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         {
             RetryAction<object?>(() =>
             {
-                var element = _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId(automationId));
+                var element = FindById(_mainWindow, automationId);
                 if (element == null) return null;
 
                 WaitUntilEnabled(element, timeoutMs: 2000);
@@ -1354,7 +1488,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
            → ตรวจว่าช่องมีค่าแล้ว (ถ้าช่องยังว่าง HRMI จะพังตอนกด Next ด้วย NullReferenceException ที่ GenIDGroupAndGenerateDatetime) */
         private void SelectFromPicker(string buttonEditId, string code, string dialogLabel)
         {
-            var container = RetryFind(() => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId(buttonEditId)), timeoutMs: 5000, pollMs: 300)
+            var container = RetryFind(() => FindById(_mainWindow, buttonEditId), timeoutMs: 5000, pollMs: 300)
                 ?? throw new Exception($"หาช่อง '{buttonEditId}' ไม่เจอ");
             WaitUntilEnabled(container, timeoutMs: 3000);
 
@@ -1368,7 +1502,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             }
             Thread.Sleep(WizardStepDelayMs + 300);
 
-            var dialog = RetryFind(FindHrmiPickerDialog, timeoutMs: 6000, pollMs: 300)
+            var dialog = RetryFind(() => FindHrmiPickerDialog(), timeoutMs: 6000, pollMs: 300)
                 ?? throw new Exception($"กด '...' ของ '{buttonEditId}' แล้วไม่พบ {dialogLabel}");
 
             var row = FindDialogRowByCode(dialog, code, dialogLabel);
@@ -1389,10 +1523,9 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         }
 
         /* หาหน้าต่าง Pop-up เลือกข้อมูลของ HRMI (เป็นของโปรเซส HRMI, ไม่ใช่หน้าหลัก และไม่ใช่วิซาร์ดที่มีปุ่ม Next)
-           เดิมใช้ "หน้าต่างแรกบน desktop" ซึ่งอาจได้หน้าต่างโปรแกรมอื่น */
-        private AutomationElement? FindHrmiPickerDialog()
+           บาง lookup สร้างหน้าต่างและปุ่ม Select ก่อน bind grid; จึงอย่าบังคับว่าต้องมี DataItem ในจังหวะค้นหา */
+        private AutomationElement? FindHrmiPickerDialog(HashSet<IntPtr>? existingWindowHandles = null)
         {
-            int pid = _mainWindow.Properties.ProcessId.ValueOrDefault;
             var candidates = FindHrmiWindows(); // ไม่รวมหน้าจอแท็บ (MDI) ที่มีตารางเหมือน Pop-up
 
             foreach (var w in candidates)
@@ -1401,7 +1534,15 @@ namespace HRMITestFlaUI.Module.Time_Attendance
                 {
                     if (w.Properties.NativeWindowHandle.ValueOrDefault == _mainWindow.Properties.NativeWindowHandle.ValueOrDefault) continue;
                     if (w.FindFirstDescendant(cf => cf.ByName(NextButtonName)) != null) continue; // ตัววิซาร์ดเอง
-                    if (w.FindFirstDescendant(cf => cf.ByControlType(ControlType.DataItem)) == null) continue; // Pop-up ต้องมีตาราง
+                    var handle = w.Properties.NativeWindowHandle.ValueOrDefault;
+                    if (existingWindowHandles != null && !existingWindowHandles.Contains(handle)) return w;
+                    var selectButton = w.FindFirstDescendant(cf => cf.ByName("Select").And(cf.ByControlType(ControlType.Button)))
+                                      ?? w.FindFirstDescendant(cf => cf.ByName("Select"));
+                    var lookupGrid = w.FindFirstDescendant(cf => cf.ByControlType(ControlType.DataGrid)
+                                            .Or(cf.ByControlType(ControlType.Table))
+                                            .Or(cf.ByControlType(ControlType.List))
+                                            .Or(cf.ByControlType(ControlType.DataItem)));
+                    if (selectButton == null && lookupGrid == null) continue; // popup ระบุได้ก่อนปุ่มหรือข้อมูลจะ bind ครบ
                     return w;
                 }
                 catch { }
@@ -1409,15 +1550,35 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             return null;
         }
 
+        private string DescribeHrmiWindows()
+        {
+            try
+            {
+                var descriptions = FindHrmiWindows().Take(10).Select(w =>
+                {
+                    string name = "";
+                    string id = "";
+                    string handle = "";
+                    try { name = w.Name ?? ""; } catch { }
+                    try { id = w.AutomationId ?? ""; } catch { }
+                    try { handle = w.Properties.NativeWindowHandle.ValueOrDefault.ToString(); } catch { }
+                    return $"Name='{name}', AutomationId='{id}', HWND={handle}";
+                });
+                string result = string.Join(" | ", descriptions);
+                return string.IsNullOrWhiteSpace(result) ? "(ไม่พบหน้าต่างย่อยของ HRMI)" : result;
+            }
+            catch (Exception ex) { return $"(อ่านหน้าต่าง HRMI ไม่สำเร็จ: {ex.Message})"; }
+        }
+
         private void ClickWizardButton(string automationId, int timeoutMs = WizardButtonRetryTimeoutMs, string? fallbackName = null)
         {
             ClickButtonWithFallback(
                 timeoutMs,
                 $"หาปุ่ม '{automationId}' ไม่เจอ",
+                () => FindFirstInHrmi(cf => cf.ByAutomationId(automationId)), // ค้นในวิซาร์ดก่อน (เร็ว)
+                () => fallbackName != null ? FindFirstInHrmi(cf => cf.ByName(fallbackName)) : null,
                 () => _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId(automationId)),
-                () => FindFirstInHrmi(cf => cf.ByAutomationId(automationId)),
-                () => fallbackName != null ? _mainWindow.FindFirstDescendant(cf => cf.ByName(fallbackName)) : null,
-                () => fallbackName != null ? FindFirstInHrmi(cf => cf.ByName(fallbackName)) : null
+                () => fallbackName != null ? _mainWindow.FindFirstDescendant(cf => cf.ByName(fallbackName)) : null
             );
             Thread.Sleep(WizardStepDelayMs);
         }
@@ -1429,8 +1590,8 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             ClickButtonWithFallback(
                 timeoutMs,
                 $"หาปุ่ม '{buttonName}' ไม่เจอ",
-                () => _mainWindow.FindFirstDescendant(cf => cf.ByName(buttonName).And(cf.ByControlType(ControlType.Button))),
-                () => FindFirstInHrmi(cf => cf.ByName(buttonName).And(cf.ByControlType(ControlType.Button)))
+                () => FindFirstInHrmi(cf => cf.ByName(buttonName).And(cf.ByControlType(ControlType.Button))), // ค้นในวิซาร์ดก่อน (เร็ว)
+                () => _mainWindow.FindFirstDescendant(cf => cf.ByName(buttonName).And(cf.ByControlType(ControlType.Button)))
             );
 
             // ★ เพิ่มใหม่: รอเผื่อประมวลผลจริงๆ ก่อนไปเช็คอะไรต่อ (ดู WizardProcessingDelayMs ด้านบน)
@@ -1447,12 +1608,10 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             DiagLog($"WaitForWizardStepSettled เริ่มรอ (timeout {timeoutMs}ms)");
             while (sw.ElapsedMilliseconds < timeoutMs)
             {
-                var nextInMain = _mainWindow.FindFirstDescendant(cf => cf.ByName(NextButtonName).And(cf.ByControlType(ControlType.Button)));
-                var finishInMain = _mainWindow.FindFirstDescendant(cf => cf.ByName(FinishButtonName).And(cf.ByControlType(ControlType.Button)));
-                var nextInDesktop = FindFirstInHrmi(cf => cf.ByName(NextButtonName).And(cf.ByControlType(ControlType.Button)));
-                var finishInDesktop = FindFirstInHrmi(cf => cf.ByName(FinishButtonName).And(cf.ByControlType(ControlType.Button)));
+                var nextInMain = FindFirstInHrmi(cf => cf.ByName(NextButtonName).Or(cf.ByName(FinishButtonName)).And(cf.ByControlType(ControlType.Button)));
+                AutomationElement? finishInMain = null, nextInDesktop = null, finishInDesktop = null;
 
-                bool hasNav = nextInMain != null || finishInMain != null || nextInDesktop != null || finishInDesktop != null;
+                bool hasNav = nextInMain != null;
 
                 if (hasNav)
                 {
@@ -1482,14 +1641,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
                 DiagLog($"CompleteWizard loop #{i}");
                 DismissErrorDialogIfPresent();
 
-                var finishBtn = _mainWindow.FindFirstDescendant(cf =>
-                        cf.ByName(FinishButtonName).And(cf.ByControlType(ControlType.Button)))
-                    ?? _mainWindow.FindFirstDescendant(cf =>
-                        cf.ByName("เสร็จสิ้น").And(cf.ByControlType(ControlType.Button)))
-                    ?? FindFirstInHrmi(cf =>
-                        cf.ByName(FinishButtonName).And(cf.ByControlType(ControlType.Button)))
-                    ?? FindFirstInHrmi(cf =>
-                        cf.ByName("เสร็จสิ้น").And(cf.ByControlType(ControlType.Button)));
+                var finishBtn = FindNavButton(FinishButtonName);
 
                 DiagLog($"  {DescribeElement(finishBtn, "finishBtn")}");
 
@@ -1512,10 +1664,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
                     return;
                 }
 
-                var nextBtn = _mainWindow.FindFirstDescendant(cf =>
-                        cf.ByName(NextButtonName).And(cf.ByControlType(ControlType.Button)))
-                    ?? FindFirstInHrmi(cf =>
-                        cf.ByName(NextButtonName).And(cf.ByControlType(ControlType.Button)));
+                var nextBtn = FindNavButton(NextButtonName);
 
                 DiagLog($"  {DescribeElement(nextBtn, "nextBtn")}");
 
@@ -1524,10 +1673,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
                     DiagLog("  nextBtn เป็น null รอบแรก -> เรียก WaitForWizardStepSettled เพื่อรอเพิ่ม");
                     WaitForWizardStepSettled(timeoutMs: WizardButtonRetryTimeoutMs);
 
-                    nextBtn = _mainWindow.FindFirstDescendant(cf =>
-                            cf.ByName(NextButtonName).And(cf.ByControlType(ControlType.Button)))
-                        ?? FindFirstInHrmi(cf =>
-                            cf.ByName(NextButtonName).And(cf.ByControlType(ControlType.Button)));
+                    nextBtn = FindNavButton(NextButtonName);
 
                     DiagLog($"  หลังรอเพิ่ม -> {DescribeElement(nextBtn, "nextBtn-retry")}");
 
@@ -1602,10 +1748,12 @@ namespace HRMITestFlaUI.Module.Time_Attendance
            เดิมใช้ IsChecked = true (Toggle ผ่าน UIA) ซึ่งไม่ commit ค่า → HRMI เตือน "กรุณากำหนด การยกเลิก อย่างใดอย่างหนึ่ง"
            ลองทีละวิธีจนสถานะเป็นติ๊ก: คลิกเมาส์ที่ช่องติ๊ก → โฟกัสแล้วกด Space → DoDefaultAction
            อ่านสถานะจาก MSAA (LegacyIAccessible) เป็นหลัก เพราะ Toggle ของ DevExpress รายงานค่าไม่ตรง */
-        private void ClickCheckbox(string automationId, string? fallbackName = null)
+        private void ClickCheckbox(string automationId, string? fallbackName = null) => SetCheckbox(automationId, true, fallbackName);
+
+        private void SetCheckbox(string automationId, bool shouldCheck, string? fallbackName = null)
         {
             AutomationElement FindBox() =>
-                _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId(automationId))
+                FindById(_mainWindow, automationId)
                 ?? FindFirstInHrmi(cf => cf.ByAutomationId(automationId))
                 ?? (fallbackName != null
                     ? (_mainWindow.FindFirstDescendant(cf => cf.ByName(fallbackName)) ?? FindFirstInHrmi(cf => cf.ByName(fallbackName)))
@@ -1626,7 +1774,8 @@ namespace HRMITestFlaUI.Module.Time_Attendance
 
             var box = FindBox();
             WaitUntilEnabled(box, timeoutMs: 3000);
-            if (IsChecked(box) == true) { Thread.Sleep(WizardStepDelayMs); return; }
+            if (IsChecked(box) == shouldCheck) { Thread.Sleep(WizardStepDelayMs); return; }
+            if (!shouldCheck && IsChecked(box) == null) return; // อ่านสถานะไม่ได้ — ไม่คลิกเอาติ๊กออก กันไปติ๊กเพิ่มโดยไม่ตั้งใจ
 
             var attempts = new Action[]
             {
@@ -1642,12 +1791,12 @@ namespace HRMITestFlaUI.Module.Time_Attendance
                 Thread.Sleep(250);
                 box = FindBox();
                 var state = IsChecked(box);
-                if (state == true) { Thread.Sleep(WizardStepDelayMs); return; }
+                if (state == shouldCheck) { Thread.Sleep(WizardStepDelayMs); return; }
                 if (state == null) break; // อ่านสถานะไม่ได้ — คลิกครั้งเดียวพอ กันกดซ้ำจนติ๊กหลุด
             }
 
-            if (IsChecked(box) == false)
-                throw new Exception($"ติ๊ก checkbox '{fallbackName ?? automationId}' ไม่สำเร็จ (ลองคลิก, Space, DoDefaultAction แล้ว)");
+            if (IsChecked(box) == !shouldCheck)
+                throw new Exception($"{(shouldCheck ? "ติ๊ก" : "เอาติ๊กออก")} checkbox '{fallbackName ?? automationId}' ไม่สำเร็จ (ลองคลิก, Space, DoDefaultAction แล้ว)");
             Thread.Sleep(WizardStepDelayMs);
         }
 
@@ -1833,7 +1982,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         {
             RetryAction<object?>(() =>
             {
-                var txt = context.FindFirstDescendant(cf => cf.ByAutomationId(automationId))?.AsTextBox()
+                var txt = FindById(context, automationId)?.AsTextBox()
                     ?? throw new Exception($"หาช่องกรอก '{automationId}' ไม่เจอ");
                 bool enabledInTime = WaitUntilEnabled(txt, timeoutMs: 3000, pollMs: 300);
                 if (!enabledInTime)
@@ -1850,7 +1999,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         {
             RetryAction<object?>(() =>
             {
-                var container = context.FindFirstDescendant(cf => cf.ByAutomationId(automationId));
+                var container = FindById(context, automationId);
                 if (container == null) return null;
 
                 WaitUntilEnabled(container, timeoutMs: 2000);
@@ -1883,7 +2032,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
 
             RetryAction<object?>(() =>
             {
-                var container = context.FindFirstDescendant(cf => cf.ByAutomationId(automationId))
+                var container = FindById(context, automationId)
                     ?? throw new Exception($"หาช่องวันที่ '{automationId}' ไม่เจอ");
 
                 bool enabledInTime = WaitUntilEnabled(container, timeoutMs: 3000, pollMs: 300);
