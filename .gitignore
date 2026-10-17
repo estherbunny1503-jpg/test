@@ -16,3 +16,6 @@ HRMITestFlaUI/Properties/PublishProfiles/FolderProfile*.pubxml
 
 # Local test config (contains credentials)
 test_config.txt
+
+# Local agent notes
+AGENT.MD

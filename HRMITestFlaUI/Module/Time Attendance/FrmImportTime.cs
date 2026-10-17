@@ -38,7 +38,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         };
 
         // ไฟล์ Import (ใช้ค้นหาไฟล์ตอนกด Browse)
-        private const string ImportDataFolder = @"D:\Import_TimeAttendance_Data";
+        private static string ImportDataFolder => TestDataPaths.Folder; // C:\TestData (เปลี่ยนได้ด้วย HRMI_TEST_DATA_DIR)
         private static readonly string[] ImportFileExtensions = { ".xlsx", ".xls", ".xlsm", ".csv" };
 
 
@@ -146,7 +146,8 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         {
             try
             {
-                OpenMenu();
+                // หน้าจอเปิดอยู่แล้ว (จาก Navigate) ไม่ต้องเปิดซ้ำ — เปิดซ้ำตอนช่องค้นหาเมนูยัง disabled ทำให้ ElementNotEnabledException
+                if (Retry(FindDateStartField, 1500) == null) OpenMenu();
                 step();
                 LogSuccess(testName, "ทำสำเร็จตามขั้นตอนครบถ้วน");
             }
@@ -164,18 +165,8 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         /* คลิกแท็บ Time Attendance -> เมนู Import ข้อมูลเวลาการทำงาน */
         private void OpenMenu()
         {
-            var tab = Retry(() =>
-                    _mainWindow.FindFirstDescendant(cf => cf.ByName(TimeAttendanceMenuName).And(cf.ByControlType(ControlType.TabItem)))
-                    ?? _mainWindow.FindFirstDescendant(cf => cf.ByName(TimeAttendanceMenuName)), 5000)
-                ?? throw new Exception($"หาเมนูหลัก '{TimeAttendanceMenuName}' ไม่เจอ");
-
-            ClickCenter(tab);
-            Thread.Sleep(MenuTransitionDelayMs);
-
-            var menuRow = Retry(FindImportMenuRow, 3000) ?? ScrollToMenuRow()
-                ?? throw new Exception($"หาเมนู '{ImportMenuLabel}' ('{ImportMenuRowName}') ไม่เจอ");
-
-            ClickCenter(menuRow);
+            // เปิดหน้าจอด้วยช่องค้นหาเมนู แบบเดียวกับโมดูลก่อนหน้า (ไม่คลิกแถวเมนูตามลำดับ)
+            MenuSearch.Open(_mainWindow, ImportMenuLabel);
             Thread.Sleep(PageLoadDelayMs);
         }
 

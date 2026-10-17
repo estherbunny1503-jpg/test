@@ -190,18 +190,8 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         /* Method คลิกแท็บ Time Attendance -> เมนูแถว 7 แล้วยืนยันว่าหน้าจอเปิดจริง */
         private void OpenMenu()
         {
-            var tab = Retry(() =>
-                    _mainWindow.FindFirstDescendant(cf => cf.ByName(TimeAttendanceMenuName).And(cf.ByControlType(ControlType.TabItem)))
-                    ?? _mainWindow.FindFirstDescendant(cf => cf.ByName(TimeAttendanceMenuName)), 5000)
-                ?? throw new Exception($"หาเมนูหลัก '{TimeAttendanceMenuName}' ไม่เจอ");
-
-            ClickCenter(tab);
-            Thread.Sleep(MenuTransitionDelayMs);
-
-            var menuRow = Retry(FindMenuRow, 3000) ?? ScrollToMenuRow()
-                ?? throw new Exception($"หาเมนู '{MenuLabel}' ('{MenuRowName}') ไม่เจอ");
-
-            ClickCenter(menuRow);
+            // เปิดหน้าจอด้วยช่องค้นหาเมนู แบบเดียวกับโมดูลก่อนหน้า (ไม่คลิกแถวเมนูตามลำดับ)
+            MenuSearch.Open(_mainWindow, MenuLabel);
             Thread.Sleep(PageLoadDelayMs);
 
             if (Retry(FindFormRoot, 8000) == null)

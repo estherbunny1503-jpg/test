@@ -734,7 +734,8 @@ namespace HRMITestFlaUI.Module.Organization
 
         private void AssertFormClosed(Window form, string testName)
         {
-            if (!WaitUntil(() => form.Properties.IsOffscreen.ValueOrDefault || !form.IsAvailable, 3000))
+            // ค้นหาฟอร์มใหม่แทนการอ่าน property ของ element เดิม (ซึ่งจะ throw หลังฟอร์มถูกปิด)
+            if (!WaitForClosed(() => FindOpenForm(), 3000))
                 throw new Exception("ฟอร์มไม่ถูกปิด");
             LogSuccess(testName, "ฟอร์มถูกปิด");
         }

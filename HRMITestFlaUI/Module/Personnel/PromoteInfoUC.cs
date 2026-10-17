@@ -69,9 +69,9 @@ namespace HRMITestFlaUI.Module.Personnel
                 "01/01/2570",
                 "31/01/2570",
                 "100",
-                "EL-001",
-                "H-001",
-                "ORG001",
+                "EL-002",
+                "P-001",
+                "ORG003",
                 "Save",
                 true),
             new(
@@ -79,9 +79,9 @@ namespace HRMITestFlaUI.Module.Personnel
                 "01/02/2570",
                 "20/02/2570",
                 "1000",
-                "EL-002",
-                "P-001",
-                "ORG003",
+                "EL-003",
+                "H-001",
+                "ORG004",
                 "Save and New",
                 false),
             new(
@@ -89,9 +89,9 @@ namespace HRMITestFlaUI.Module.Personnel
                 "01/03/2570",
                 "31/03/2570",
                 "50",
-                "EL-003",
-                "H-001",
-                "ORG003",
+                "EL-004",
+                "P-001",
+                "ORG005",
                 "Save and New",
                 false),
             new(
@@ -99,9 +99,9 @@ namespace HRMITestFlaUI.Module.Personnel
                 "01/04/2570",
                 "01/05/2570",
                 "100",
-                "EL-004",
-                "P-001",
-                "ORG004",
+                "EL-005",
+                "H-001",
+                "RP001",
                 "Save and New",
                 false),
             new(
@@ -109,9 +109,9 @@ namespace HRMITestFlaUI.Module.Personnel
                 "20/05/2570",
                 "25/07/2570",
                 "100",
-                "EL-005",
-                "H-001",
-                "ORG005",
+                "EL-001",
+                "P-001",
+                "ORG003",
                 "Save and Close",
                 false)
         };
@@ -122,7 +122,7 @@ namespace HRMITestFlaUI.Module.Personnel
             new("TestCase01_EmptyDates", "EP0006", "", "", "100", null, null, null, "Save", 26,
                 "Validating: Empty Dates...", new[] { "วันที่" }),
 
-            new("TestCase02_NoPromoteType", "EP0006", null, null, null, null, null, null, "Save", 30,
+            new("TestCase02_NoPromoteType", "EP0006", "15/07/2570", "31/12/2570", null, null, null, null, "Save", 30,
                 "Validating: No Promote Type...", new[] { MsgNoPromoteType }),
 
             new("TestCase03_EmptyEmployee", "", "15/07/2570", "31/12/2570", "100", null, null, null, "Save and New", 34,
@@ -144,7 +144,7 @@ namespace HRMITestFlaUI.Module.Personnel
                 "TestCase08_EditEmp00002",
                 "EMP00002",
                 null,
-                "P-001",
+                "DW001",
                 "RP001",
                 "Save and Close",
                 false)
@@ -155,7 +155,7 @@ namespace HRMITestFlaUI.Module.Personnel
         private static readonly ValidationItem[] Step4_EditValidationCases =
         {
             // ลบพนักงานออก + ติ๊กครบทุกประเภท → Save → แจ้งเตือนพนักงานว่าง
-            new("TestCase09_EditValidation_EmptyEmployee", "", null, null, "100", "EL-001", "H-001", "001", "Save", 66,
+            new("TestCase09_EditValidation_EmptyEmployee", "", null, null, "100", "EL-002", "P-001", "ORG003", "Save", 66,
                 "Validating Edit: Empty Employee...", new[] { MsgEmployeeEmpty }),
 
             // เลือก EP0006 + ปลดติ๊กออกทั้งหมด → Save and New → แจ้งเตือนไม่ได้เลือกประเภทการปรับ
@@ -207,6 +207,7 @@ namespace HRMITestFlaUI.Module.Personnel
             if (!TryOpenMenu(stageName, MenuName)) return;
 
             Window? form = null;
+            var saveAndNewCodes = new List<string>();
             for (int i = 0; i < Step1_AddCases.Length; i++)
             {
                 var item = Step1_AddCases[i];
@@ -234,7 +235,15 @@ namespace HRMITestFlaUI.Module.Personnel
                     if (item.SaveBtn == "Save and New")
                     {
                         WaitUntil(() => string.IsNullOrEmpty(tab.FindFirstDescendant(cf => cf.ByAutomationId(FirstObjectID))?.AsTextBox().Text), 3000);
-                        LogSuccess(testName, $"'{item.Code}' บันทึกสำเร็จ (Save and New)");
+                        string taskResult = "";
+                        try
+                        {
+                            var panel = FindTaskResultPanel(form, 1000);
+                            if (panel != null) taskResult = string.Join(" | ", GetPanelTexts(panel).Where(t => !string.IsNullOrWhiteSpace(t) && !t.Contains(" row ") && t != "Header Panel" && t != "Data Panel" && !t.StartsWith("Row ")).Distinct().Take(12));
+                        }
+                        catch { }
+                        LogSuccess(testName, $"'{item.Code}' บันทึกสำเร็จ (Save and New){(taskResult.Length > 0 ? $" [Task Result: {taskResult}]" : "")}");
+                        saveAndNewCodes.Add(item.Code);
                     }
                     else
                     {
@@ -248,6 +257,17 @@ namespace HRMITestFlaUI.Module.Personnel
                 {
                     LogFailure(testName, $"'{item.Code}' เพิ่มไม่สำเร็จ: {ex.Message}");
                     form = null;
+                }
+            }
+
+            // Save and New ไม่ได้ตรวจในตารางตอนบันทึก (ฟอร์มยังเปิดอยู่) → ตรวจรวมตอนจบว่ามีอยู่จริง ไม่ใช่แค่ช่องพนักงานว่าง
+            if (saveAndNewCodes.Count > 0 && FindOpenForm() == null)
+            {
+                RefreshGrid();
+                foreach (var code in saveAndNewCodes)
+                {
+                    if (!VerifyRecordInGrid(code, refresh: false))
+                        LogFailure($"{stageName}_{code}_VerifyInGrid", $"'{code}' รายงานว่าบันทึก (Save and New) แต่ไม่พบในตารางหลัก");
                 }
             }
         }
@@ -372,8 +392,8 @@ namespace HRMITestFlaUI.Module.Personnel
         private void FillFormData(Window form, AddItem item)
         {
             SelectTab(form, GeneralTabName);
-            TypeText(form, PromoteDateFieldId, item.PromoteDate);
-            TypeText(form, EffectDateFieldId, item.EffectDate);
+            SetDate(form, PromoteDateFieldId, item.PromoteDate);
+            SetDate(form, EffectDateFieldId, item.EffectDate);
             SelectLookup(form, EmployeeFieldId, item.Code);
             SetPromoteDetails(form, item.Amount, item.Level, item.Position, item.Org);
         }
@@ -398,8 +418,8 @@ namespace HRMITestFlaUI.Module.Personnel
         private void FillValidationAndAssert(AutomationElement tab, Window form, ValidationItem tc, string testName)
         {
             SelectTab(form, GeneralTabName);
-            if (tc.PromoteDate != null) TypeText(form, PromoteDateFieldId, tc.PromoteDate);
-            if (tc.EffectDate != null) TypeText(form, EffectDateFieldId, tc.EffectDate);
+            if (tc.PromoteDate != null) SetDate(form, PromoteDateFieldId, tc.PromoteDate);
+            if (tc.EffectDate != null) SetDate(form, EffectDateFieldId, tc.EffectDate);
             SelectLookup(form, EmployeeFieldId, tc.Code);
             SetPromoteDetails(form, tc.Amount, tc.Level, tc.Position, tc.Org);
 
@@ -437,6 +457,28 @@ namespace HRMITestFlaUI.Module.Personnel
 
             WaitUntil(() => text.Length == 0 || GetValue(scope, id).Contains(text), 1500);
             Keyboard.Type(VirtualKeyShort.TAB);
+        }
+
+        /* กรอก/ล้างช่องวันที่แบบเดียวกับหน้าจอพ้นสภาพ และอัตราหักกองทุนฯ ที่ผ่านแล้ว:
+           คลิกฝั่งซ้าย (กันโดนปุ่มปฏิทิน) → Ctrl+A → Delete → Backspace ซ้ำ กัน mask วันที่เหลือตัวอักษรค้าง
+           (เดิมใช้ Backspace ครั้งเดียว mask ค้าง → กด Save แล้วโปรแกรมขึ้น "Object reference not set to an instance of an object.") */
+        private void SetDate(AutomationElement scope, string id, string text)
+        {
+            var field = Retry(() => scope.FindFirstDescendant(cf => cf.ByAutomationId(id)), 3000) ?? throw new Exception($"ไม่พบช่องวันที่ {id}");
+            WaitUntil(() => field.Properties.IsEnabled.ValueOrDefault, 3000);
+
+            var r = field.BoundingRectangle;
+            Mouse.Click(new Point(r.Left + Math.Min(20, r.Width / 4), r.Top + r.Height / 2));
+            Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
+            Keyboard.Type(VirtualKeyShort.DELETE);
+            for (int i = 0; i < 10; i++) Keyboard.Type(VirtualKeyShort.BACK);
+
+            if (text.Length > 0)
+            {
+                Keyboard.Type(text);
+                WaitUntil(() => GetValue(scope, id).Contains(text), 1500);
+            }
+            Keyboard.Type(VirtualKeyShort.TAB); // Tab ออกเพื่อ commit ค่า
         }
 
         /* อ่านค่าในช่องตาม Automation ID (อ่านจากช่อง Edit ด้านในถ้ามี) */
@@ -505,36 +547,153 @@ namespace HRMITestFlaUI.Module.Personnel
                 popup = Retry(() => FindLookupPopup(form), 4000) ?? throw new Exception($"ไม่พบหน้าต่าง Lookup สำหรับ '{id}'");
             }
 
-            var cell = Retry(() => popup.FindAllDescendants().FirstOrDefault(el =>
-                           string.Equals(el.Name?.Trim(), code, StringComparison.OrdinalIgnoreCase) ||
-                           (el.Patterns.Value.IsSupported && string.Equals(el.Patterns.Value.Pattern.Value.Value?.Trim(), code, StringComparison.OrdinalIgnoreCase))), 3000)
-                       ?? popup.FindAllDescendants().FirstOrDefault(el => (el.Name ?? "").Contains(code))
-                       ?? throw new Exception($"ไม่พบ '{code}' ใน Pop-up ของช่อง {id}");
-            ClickWithMouse(cell);
+            // รอให้ข้อมูลในตารางโหลดเสร็จจริง: แถวโผล่ก่อนข้อมูลเสมอ (ตารางขึ้น "กำลังโหลดข้อมูล") จึงต้องรอจนเซลล์มีข้อความ
+            // นับเฉพาะ DataItem (เซลล์ข้อมูลจริง) ห้ามใช้ GetPopupRows เพราะมันถอยไปใช้ ListItem ของกล่องเลือกคอลัมน์ ("ทั้งหมด", ...) ทำให้เหมือนโหลดเสร็จทั้งที่ตารางว่าง
+            WaitUntil(() => popup.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem)).Any(r =>
+            {
+                string t = ReadCellText(r);
+                return t.Length > 0 && !t.Contains(" row ");
+            }), 15000);
 
-            var btnSelect = popup.FindFirstDescendant(cf => cf.ByName("Select"))
-                            ?? popup.FindFirstDescendant(cf => cf.ByName("&Select"))
-                            ?? popup.FindFirstDescendant(cf => cf.ByName("OK"))
-                            ?? popup.FindFirstDescendant(cf => cf.ByName("เลือก"));
+            // หา "แถว" (DataItem/ListItem) ที่มีรหัสตรงกัน เหมือนหน้าจออัตราหักกองทุนฯ ที่ผ่านแล้ว
+            // (เดิมหา element ใดก็ได้ที่ชื่อตรงรหัส แล้วคลิกผิดตำแหน่ง Pop-up เลยไม่ปิด)
+            AutomationElement? target = Retry(() => FindPopupRow(popup, code), 3000);
+            if (target == null)
+            {
+                var pageDown = popup.FindFirstDescendant(cf => cf.ByName("Page Down"));
+                for (int i = 0; target == null && pageDown != null && i < 15; i++)
+                {
+                    ClickWithMouse(pageDown);
+                    WaitUntil(() => (target = FindPopupRow(popup, code)) != null, 500);
+                }
+            }
+            target ??= popup.FindAllDescendants().FirstOrDefault(el => (el.Name ?? "").Contains(code));
+            if (target == null)
+            {
+                var cells = GetPopupRows(popup);
+                string sample = string.Join(", ", cells.Select(ReadCellText).Where(t => t.Length > 0).Take(8));
+                string popupName = ""; try { popupName = popup.Name; } catch { }
+                DumpPopupTree(popup, id, code);
+                CancelStuckPopup(popup);
+                throw new Exception($"ไม่พบ '{code}' ใน Pop-up ของช่อง {id} (Pop-up '{popupName}' เซลล์ {cells.Length} ค่า: [{sample}])");
+            }
+
+            try { if (target.Patterns.ScrollItem.IsSupported) target.Patterns.ScrollItem.Pattern.ScrollIntoView(); } catch { }
+            ClickWithMouse(target);
+
+            var btnSelect = Retry(() => popup.FindFirstDescendant(cf => cf.ByName("Select"))
+                                        ?? popup.FindFirstDescendant(cf => cf.ByName("&Select"))
+                                        ?? popup.FindFirstDescendant(cf => cf.ByAutomationId("btnSelect"))
+                                        ?? popup.FindFirstDescendant(cf => cf.ByName("OK"))
+                                        ?? popup.FindFirstDescendant(cf => cf.ByName("เลือก")), 3000);
             if (btnSelect != null) ClickWithMouse(btnSelect);
             else Keyboard.TypeSimultaneously(VirtualKeyShort.ALT, VirtualKeyShort.KEY_S);
 
-            if (!WaitForClosed(() => popup)) throw new Exception($"กด Select แล้ว Pop-up ของช่อง {id} ไม่ปิด");
+            // Select ไม่ปิด → ลองดับเบิลคลิกแถวอีกครั้ง
+            if (!WaitForClosed(() => popup, 2500))
+            {
+                try
+                {
+                    var r = target.BoundingRectangle;
+                    if (!r.IsEmpty) Mouse.DoubleClick(new Point(r.X + r.Width / 2, r.Y + r.Height / 2));
+                }
+                catch { }
+            }
+
+            if (!WaitForClosed(() => popup, 3000))
+            {
+                DumpPopupTree(popup, id, code);
+                CancelStuckPopup(popup);
+                throw new Exception($"กด Select แล้ว Pop-up ของช่อง {id} ไม่ปิด");
+            }
+        }
+
+        /* ดึงแถวของตารางใน Pop-up (DataItem หรือ ListItem) */
+        private static AutomationElement[] GetPopupRows(AutomationElement popup)
+        {
+            try
+            {
+                var rows = popup.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem));
+                return rows.Length > 0 ? rows : popup.FindAllDescendants(cf => cf.ByControlType(ControlType.ListItem));
+            }
+            catch { return Array.Empty<AutomationElement>(); }
+        }
+
+        private static string ReadCellText(AutomationElement e)
+        {
+            try { if (e.Patterns.Value.IsSupported && !string.IsNullOrWhiteSpace(e.Patterns.Value.Pattern.Value.Value)) return e.Patterns.Value.Pattern.Value.Value.Trim(); } catch { }
+            try { return (e.Name ?? "").Trim(); } catch { return ""; }
+        }
+
+        private static AutomationElement? FindPopupRow(AutomationElement popup, string code) =>
+            GetPopupRows(popup).FirstOrDefault(r =>
+                string.Equals(ReadCellText(r), code, StringComparison.OrdinalIgnoreCase)
+                || r.FindAllDescendants().Any(c => string.Equals(ReadCellText(c), code, StringComparison.OrdinalIgnoreCase)));
+
+        /* ปิด Pop-up ที่ค้าง ไม่ให้บังฟอร์มของเคสถัดไป */
+        private static void CancelStuckPopup(Window popup)
+        {
+            try
+            {
+                var cancel = popup.FindFirstDescendant(cf => cf.ByName("Cancel"));
+                if (cancel != null) ClickWithMouse(cancel); else popup.Close();
+            }
+            catch { try { Keyboard.Type(VirtualKeyShort.ESCAPE); } catch { } }
+        }
+
+        /* เก็บโครงสร้าง Pop-up ลงไฟล์ตอนปิดไม่ได้ เพื่อใช้ไล่หาสาเหตุ (ไฟล์อยู่ข้าง log) */
+        private static void DumpPopupTree(AutomationElement popup, string id, string code)
+        {
+            try
+            {
+                // โฟลเดอร์เดียวกับไฟล์ log (ดู TestLogger)
+                string? envDir = Environment.GetEnvironmentVariable("HRMI_LOG_DIR");
+                string dir = !string.IsNullOrWhiteSpace(envDir) ? envDir.Trim().Trim('"')
+                    : Directory.Exists(@"D:\") ? @"D:\TestResults\Logs"
+                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "TestResults", "Logs");
+                Directory.CreateDirectory(dir);
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"=== {DateTime.Now:HH:mm:ss} field={id} code={code} popup='{popup.Name}' rect={popup.BoundingRectangle}");
+                foreach (var el in popup.FindAllDescendants())
+                {
+                    string name = "", type = "", aid = "", value = "";
+                    try { name = el.Name ?? ""; type = el.ControlType.ToString(); aid = el.AutomationId ?? ""; } catch { }
+                    try { if (el.Patterns.Value.IsSupported) value = el.Patterns.Value.Pattern.Value.Value ?? ""; } catch { }
+                    sb.AppendLine($"{type,-12} id='{aid}' name='{name}' value='{value}' rect={el.BoundingRectangle}");
+                }
+                string safeCode = string.Concat(code.Where(char.IsLetterOrDigit));
+                File.WriteAllText(Path.Combine(dir, $"promote_popup_dump_{id}_{safeCode}.txt"), sb.ToString());
+            }
+            catch { }
         }
 
         /* หา Pop-up Lookup ที่เปิดอยู่ (Modal ของฟอร์ม / หน้าหลัก หรือหน้าต่างบน Desktop ที่มีปุ่ม Select) */
         private Window? FindLookupPopup(Window form) =>
             FindMessageBox(form)
             ?? _automation.GetDesktop().FindAllChildren(cf => cf.ByControlType(ControlType.Window))
-                   .FirstOrDefault(w => w.FindFirstDescendant(cf => cf.ByName("Select")) != null)?.AsWindow();
+                   .FirstOrDefault(w => !SameWindow(w, form) && !SameWindow(w, _mainWindow)
+                                        && w.FindFirstDescendant(cf => cf.ByName("Select")) != null)?.AsWindow();
 
-        /* หากล่องข้อความที่เด้งจากฟอร์ม (เป็น Modal ของฟอร์ม หรือ Modal ของหน้าหลักที่ไม่ใช่ตัวฟอร์มเอง) */
+        /* เทียบหน้าต่างด้วย handle (FlaUI สร้าง wrapper ใหม่ทุกครั้ง ใช้ Equals เทียบตัวฟอร์มเองไม่ได้
+           ผลคือเดิมนับตัวฟอร์มเป็น "Pop-up" แล้วรอให้มันปิดซึ่งไม่มีทางปิด) */
+        private static bool SameWindow(AutomationElement a, AutomationElement b)
+        {
+            try
+            {
+                var ha = a.Properties.NativeWindowHandle.ValueOrDefault;
+                var hb = b.Properties.NativeWindowHandle.ValueOrDefault;
+                return ha != IntPtr.Zero && ha == hb;
+            }
+            catch { return false; }
+        }
+
+        /* หากล่องข้อความ/Pop-up ที่เด้งจากฟอร์ม (เป็น Modal ของฟอร์ม หรือ Modal ของหน้าหลักที่ไม่ใช่ตัวฟอร์มเอง) */
         private Window? FindMessageBox(Window form)
         {
             try
             {
-                return (form.IsAvailable ? form.ModalWindows.FirstOrDefault() : null)
-                       ?? _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault(w => !w.Equals(form));
+                return (form.IsAvailable ? form.ModalWindows.FirstOrDefault(w => !SameWindow(w, form)) : null)
+                       ?? _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault(w => !SameWindow(w, form));
             }
             catch { return null; }
         }
@@ -568,6 +727,7 @@ namespace HRMITestFlaUI.Module.Personnel
         {
             var pending = new HashSet<string>(msgs);
             var sw = Stopwatch.StartNew();
+            var seenTexts = new List<string>();
 
             while (sw.ElapsedMilliseconds < 5000 && pending.Count > 0)
             {
@@ -576,6 +736,7 @@ namespace HRMITestFlaUI.Module.Personnel
                 if (panel != null) texts.AddRange(GetPanelTexts(panel));
                 var box = FindMessageBox(form);
                 if (box != null) texts.AddRange(GetPanelTexts(box));
+                seenTexts.AddRange(texts.Where(t => !string.IsNullOrWhiteSpace(t) && !t.Contains(" row ")));
 
                 foreach (var m in pending.ToList())
                 {
@@ -591,7 +752,13 @@ namespace HRMITestFlaUI.Module.Personnel
                 WaitForClosed(() => leftover);
             }
 
-            if (pending.Count > 0) throw new Exception($"ไม่พบข้อความ: '{string.Join("', '", pending)}'");
+            if (pending.Count > 0)
+            {
+                string seen = seenTexts.Count == 0
+                    ? "ไม่พบข้อความใดๆ"
+                    : string.Join(" | ", seenTexts.Select(s => string.Join(" ", s.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))).Distinct().Take(15));
+                throw new Exception($"ไม่พบข้อความ: '{string.Join("', '", pending)}' — ข้อความที่เจอจริง: [{seen}]");
+            }
             LogSuccess(testName, $"พบข้อความ: {string.Join(",", msgs.Select(m => $"'{m}'"))}");
         }
 
@@ -838,7 +1005,8 @@ namespace HRMITestFlaUI.Module.Personnel
 
         private void AssertFormClosed(Window form, string testName)
         {
-            if (!WaitUntil(() => form.Properties.IsOffscreen.ValueOrDefault || !form.IsAvailable, 3000))
+            // ค้นหาฟอร์มใหม่แทนการอ่าน property ของ element เดิม (ซึ่งจะ throw หลังฟอร์มถูกปิด)
+            if (!WaitForClosed(() => FindOpenForm(), 3000))
                 throw new Exception("ปิดฟอร์มไม่สำเร็จ");
             LogSuccess(testName, "ฟอร์มถูกปิด");
         }

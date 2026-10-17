@@ -37,7 +37,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             string Status,
             string SaveButton);
 
-        // [ขั้นที่ 1] ข้อมูลทดสอบบันทึกแก้ไข/ปรับปรุงเวลา (Test Step แถว 6, 7, 8)  Progress: 5 -> 100
+        // [ขั้นที่ 1] ข้อมูลทดสอบบันทึกแก้ไข/ปรับปรุงเวลา — TestStep.ods มีแถวเดียว (แถว 6) = TestCase_FixTimeManual_3 ด้านล่าง; 1-2 ปิดไว้  Progress: 5 -> 100
         // Enabled = false จะถูกข้าม / Navigate = false คือทำต่อจาก Save and New ของแถวก่อนหน้า
         private static readonly FixTimeItem[] Step1_FixTimeCases =
         {
@@ -68,7 +68,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
                 "DW001", "POS005",
                 new[] { "พนักงานรายชั่วโมง", "พนักงานรายเหมา", "พนักงานรายวัน", "พนักงานรายเดือน" },
                 new[] { "กะงานปกติ", "กะงานล่วงเวลา" },
-                "NRM-M02", "OT-EVN02",
+                "NRM-M01", "OT-EVN02", // ตาม TestStep.ods (เดิม NRM-M02)
                 "ทุกสถานะ", "Save and Close")
         };
 
@@ -97,10 +97,10 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private const string IdBtnRetrieve = "devBtnRetrieve";
 
         // 2.2 ค่า Timeout / Delay ประจำหน้าจอ
-        private const int MenuTransitionDelayMs = 400;
-        private const int PageLoadDelayMs = 800;
-        private const int StepDelayMs = 800;
-        private const int PopupDelayMs = 600;
+        private const int MenuTransitionDelayMs = 150;
+        private const int PageLoadDelayMs = 300;
+        private const int StepDelayMs = 300;
+        private const int PopupDelayMs = 300;
         private const int ToggleDelayMs = 250;
         private const int RetrieveMaxWaitMs = 30000;
         private const int LookupMaxWaitMs = 90000;   // lookup บางตัว (รหัสกะงาน) โหลดนาน
@@ -176,18 +176,8 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         /* คลิกแท็บ Time Attendance -> เมนูแถว 8 แล้วยืนยันว่าหน้าจอเปิดจริง */
         private void OpenMenu()
         {
-            var tab = Retry(() =>
-                    _mainWindow.FindFirstDescendant(cf => cf.ByName(TimeAttendanceMenuName).And(cf.ByControlType(ControlType.TabItem)))
-                    ?? _mainWindow.FindFirstDescendant(cf => cf.ByName(TimeAttendanceMenuName)), 5000)
-                ?? throw new Exception($"หาเมนูหลัก '{TimeAttendanceMenuName}' ไม่เจอ");
-
-            ClickCenter(tab);
-            Thread.Sleep(MenuTransitionDelayMs);
-
-            var menuRow = Retry(FindFixTimeMenuRow, 3000) ?? ScrollToMenuRow()
-                ?? throw new Exception($"หาเมนู '{FixTimeMenuLabel}' ('{FixTimeMenuRowName}') ไม่เจอ");
-
-            ClickCenter(menuRow);
+            // เปิดหน้าจอด้วยช่องค้นหาเมนู แบบเดียวกับโมดูลก่อนหน้า (ไม่คลิกแถวเมนูตามลำดับ)
+            MenuSearch.Open(_mainWindow, FixTimeMenuLabel);
             Thread.Sleep(PageLoadDelayMs);
 
             if (Retry(FindFormRoot, 8000) == null)
@@ -319,7 +309,21 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             ClickCenter(buttons[buttonIndex]);
             Thread.Sleep(PopupDelayMs);
 
-            var cell = Retry(() => FindInPopup(code), LookupMaxWaitMs, 500);
+            // รอแค่จนตารางใน popup โหลดข้อมูลเสร็จ (lookup บางตัวโหลดนาน) แล้วค่อยหารหัส
+            // เดิมรอหารหัสนานสุด 90 วินาที ถ้ารหัสไม่มีในข้อมูล (เช่น ORG001 ที่ถูกเปลี่ยนเป็น RP001) จะเสียเวลาฟรีทั้ง 90 วินาที
+            Retry(() => FindFirstPopupDataCell(), LookupMaxWaitMs, 300);
+            var cell = Retry(() => FindInPopup(code), 1500, 300);
+            if (cell == null)
+            {
+                // รหัสตาม TestStep ไม่มีในข้อมูล → ใช้แถวแรก (ช่อง "จาก") / แถวสุดท้าย (ช่อง "ถึง") ให้ช่วงครอบคลุมข้อมูลทั้งหมด
+                var edge = FindEdgePopupRow(last: buttonIndex == 1);
+                if (edge != null)
+                {
+                    string used = ""; try { used = edge.Patterns.Value.Pattern.Value.Value ?? ""; } catch { }
+                    TestLogger.LogInfo(LogSource, $"ไม่พบรหัส '{code}' ใน '{automationId}' — ใช้ '{used}' ({(buttonIndex == 1 ? "แถวสุดท้าย" : "แถวแรก")}) แทน");
+                    cell = edge;
+                }
+            }
             if (cell == null)
             {
                 var popupInfo = DescribePopupState();
@@ -611,6 +615,43 @@ namespace HRMITestFlaUI.Module.Time_Attendance
                 Thread.Sleep(StepDelayMs);
             }
             catch { }
+        }
+
+        /* เซลล์ข้อมูลแรกในตาราง popup ที่มีค่าแล้ว (ใช้รอให้ตารางโหลดเสร็จ) */
+        private AutomationElement? FindFirstPopupDataCell()
+        {
+            foreach (var window in GetPopupWindows())
+            {
+                try
+                {
+                    var c = window.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem))
+                        .FirstOrDefault(e => { try { return e.Patterns.Value.IsSupported && !string.IsNullOrWhiteSpace(e.Patterns.Value.Pattern.Value.Value); } catch { return false; } });
+                    if (c != null) return c;
+                }
+                catch { }
+            }
+            return null;
+        }
+
+        /* แถวแรก/แถวสุดท้ายของคอลัมน์แรกในตาราง popup (เซลล์ชื่อ "<หัวคอลัมน์> row N") */
+        private AutomationElement? FindEdgePopupRow(bool last)
+        {
+            var rx = new System.Text.RegularExpressions.Regex(@"^(.*) row (\d+)$");
+            foreach (var window in GetPopupWindows())
+            {
+                try
+                {
+                    var cells = window.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem))
+                        .Select(c => { string n = ""; try { n = c.Name ?? ""; } catch { } return (c, m: rx.Match(n)); })
+                        .Where(x => x.m.Success).ToList();
+                    if (cells.Count == 0) continue;
+                    string firstCol = cells[0].m.Groups[1].Value;
+                    var col = cells.Where(x => x.m.Groups[1].Value == firstCol).OrderBy(x => int.Parse(x.m.Groups[2].Value)).ToList();
+                    return (last ? col.Last() : col.First()).c;
+                }
+                catch { }
+            }
+            return null;
         }
 
         /* หาข้อความใน popup ที่แยกออกมาก่อน แล้วค่อยหาใน tree หน้าจอหลัก (ข้ามช่อง Edit/ComboBox) */

@@ -40,7 +40,8 @@ namespace HRMITestFlaUI.Module.Personnel
             string SaveBtn,
             int Progress,
             string ProgressMsg,
-            string[] ExpectedErrors);
+            string[] ExpectedErrors,
+            string? EndDate = null); // null = ไม่แตะช่องวันที่สิ้นสุด (สาเหตุบังคับกรอกเฉพาะเมื่อมีวันที่สิ้นสุด)
         private sealed record EditItem(
             string Name,
             string Code,
@@ -128,13 +129,13 @@ namespace HRMITestFlaUI.Module.Personnel
             new("TestCase01_MissingEmployeeCode", null, "15/11/2569", "3.00", null, ValidationReason, "Save", 25,
                 "Validating: Missing Employee Code...", new[] { WarnMissingEmployee }),
 
-            new("TestCase02_MissingStartDate", "EMP00006", "", "3.00", null, ValidationReason, "Save and New", 28,
+            new("TestCase02_MissingStartDate", "EP0006", "", "3.00", null, ValidationReason, "Save and New", 28,
                 "Validating: Missing Start Date...", new[] { WarnMissingStartDate }),
 
-            new("TestCase03_MissingReason", "EMP00007", "15/11/2568", "3.01", null, "", "Save and New", 31,
-                "Validating: Missing Reason...", new[] { WarnMissingReason }),
+            new("TestCase03_MissingReason", "EP0006", "15/11/2568", "3.01", null, "", "Save and New", 31,
+                "Validating: Missing Reason...", new[] { WarnMissingReason }, EndDate: "31/12/2569"),
 
-            new("TestCase04_MissingRate", "EMP00001", "15/11/2569", "", null, ValidationReason, "Save and New", 37,
+            new("TestCase04_MissingRate", "EP0006", "15/11/2569", "", null, ValidationReason, "Save and New", 37,
                 "Validating: Missing Rate...", new[] { WarnMissingRate })
         };
 
@@ -168,7 +169,7 @@ namespace HRMITestFlaUI.Module.Personnel
                 "Validating Edit: Missing Rate...", new[] { WarnMissingRate }),
 
             new("TestCase10_EditValidation_MissingReason", null, "10/08/2569", "1.00", "3.00", "", "Save and New", 74,
-                "Validating Edit: Missing Reason...", new[] { WarnMissingReason })
+                "Validating Edit: Missing Reason...", new[] { WarnMissingReason }, EndDate: "31/12/2569")
         };
 
         // [ขั้นที่ 5] ข้อมูลทดสอบการลบข้อมูล (Delete Records)
@@ -213,6 +214,7 @@ namespace HRMITestFlaUI.Module.Personnel
             if (!TryOpenMenu(stageName, MenuName)) return;
 
             Window? form = null;
+            var saveAndNewCodes = new List<string>();
             for (int i = 0; i < Step1_AddCases.Length; i++)
             {
                 var item = Step1_AddCases[i];
@@ -234,7 +236,16 @@ namespace HRMITestFlaUI.Module.Personnel
                     if (item.SaveBtn == "Save and New")
                     {
                         WaitUntil(() => string.IsNullOrEmpty(tab.FindFirstDescendant(cf => cf.ByAutomationId(FirstObjectID))?.AsTextBox().Text), 3000);
+
+                        // ช่องพนักงานว่างไม่ได้แปลว่าบันทึกสำเร็จ (EMP00003 เคยรายงานผ่านแต่ไม่มีในฐานข้อมูล) → ดู Task Result ด้วย
+                        var taskTexts = ReadTaskResultMessages(form);
+                        if (taskTexts.Count > 0 && !taskTexts.Any(t => t.Contains("Save Succeeded")))
+                        {
+                            LogFailure(testName, $"'{item.Code}' บันทึกไม่สำเร็จ (Save and New): {string.Join(" | ", taskTexts)}");
+                            continue;
+                        }
                         LogSuccess(testName, $"'{item.Code}' บันทึกสำเร็จ (Save and New)");
+                        saveAndNewCodes.Add(item.Code);
                     }
                     else
                     {
@@ -250,6 +261,37 @@ namespace HRMITestFlaUI.Module.Personnel
                     form = null;
                 }
             }
+
+            // ตรวจรวมตอนจบว่ารายการที่ Save and New มีอยู่ในตารางจริง
+            if (saveAndNewCodes.Count > 0 && FindOpenForm() == null)
+            {
+                RefreshGrid();
+                foreach (var code in saveAndNewCodes)
+                {
+                    if (!VerifyRecordInGrid(code, refresh: false))
+                        LogFailure($"{stageName}_{code}_VerifyInGrid", $"'{code}' รายงานว่าบันทึก (Save and New) แต่ไม่พบในตารางหลัก");
+                }
+            }
+        }
+
+        /* อ่านข้อความใน Task Result (ตัดชื่อโครงสร้างตาราง/แถบเครื่องมือออก เหลือแต่ข้อความผลการบันทึก) */
+        private List<string> ReadTaskResultMessages(Window form)
+        {
+            var result = new List<string>();
+            try
+            {
+                var panel = FindTaskResultPanel(form, 1500);
+                if (panel == null) return result;
+                string[] noise = { "Header Panel", "Data Panel", "Exception Severity Pict", "Description", "Dock Top",
+                                   "ExceptionSeverityToolBar", "Static", "More Information" };
+                result = GetPanelTexts(panel)
+                    .Select(t => string.Join(" ", t.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)))
+                    .Where(t => t.Length > 0 && !t.Contains(" row ") && !t.StartsWith("Row ") && !noise.Contains(t)
+                                && !t.EndsWith(" Errors") && !t.EndsWith(" Warnings") && !t.EndsWith(" Informations"))
+                    .Distinct().ToList();
+            }
+            catch { }
+            return result;
         }
 
         /// <summary>
@@ -383,17 +425,19 @@ namespace HRMITestFlaUI.Module.Personnel
                 SetText(tab, BeneficiaryFieldIds[b], item.Beneficiaries[b]);
         }
 
-        /* กรอกข้อมูลตามเคส แล้วกดบันทึกและตรวจข้อความ (EmpCode / EmployeeRate = null คือไม่แตะช่องนั้น) */
+        /* กรอกข้อมูลตามเคส แล้วกดบันทึกและตรวจข้อความ (EmpCode / EmployeeRate / EndDate = null คือไม่แตะช่องนั้น) */
         private void FillValidationAndAssert(AutomationElement tab, Window form, ValidationItem tc, string testName)
         {
             if (tc.EmpCode != null) SelectEmployee(form, tc.EmpCode);
             SetDate(tab, StartDateFieldId, tc.StartDate);
+            if (tc.EndDate != null) SetDate(tab, EndDateFieldId, tc.EndDate);
             SetText(tab, EmployerRateFieldId, tc.EmployerRate);
             if (tc.EmployeeRate != null) SetText(tab, EmployeeRateFieldId, tc.EmployeeRate);
             SetText(tab, ReasonFieldId, tc.Reason);
             form.FindFirstDescendant(cf => cf.ByName(tc.SaveBtn))?.Click();
             AssertScreenTaskResult(form, tc.ExpectedErrors, testName);
         }
+
 
         private static string? DetectDuplicateMessage(IEnumerable<string> texts)
         {
@@ -440,12 +484,11 @@ namespace HRMITestFlaUI.Module.Personnel
             var group = Retry(() => tab.FindFirstDescendant(cf => cf.ByAutomationId(groupId)), 3000) ?? throw new Exception($"ไม่พบ {groupId}");
             var radio = group.FindFirstDescendant(cf => cf.ByName(option)) ?? throw new Exception($"ไม่พบตัวเลือก '{option}'");
 
+            // คลิกด้วยเมาส์จริง: SelectionItem.Select() ไม่ commit ค่าใน RadioGroup ของ DevExpress
+            // (ในฐานข้อมูลทุกแถวเป็น "หัก" แม้เคสที่เลือก "ไม่หัก")
+            ClickByMouse(radio);
             if (radio.Patterns.SelectionItem.IsSupported)
-            {
-                radio.Patterns.SelectionItem.Pattern.Select();
                 WaitUntil(() => radio.Patterns.SelectionItem.Pattern.IsSelected.ValueOrDefault, 2000);
-            }
-            else radio.Click();
         }
 
         /* เลือกรหัสพนักงาน: กด ... → หาแถวที่รหัสตรงใน Pop-up "ข้อมูลพนักงาน" → คลิก → กด Select
@@ -562,12 +605,16 @@ namespace HRMITestFlaUI.Module.Personnel
             var pending = new HashSet<string>(msgs);
             var sw = Stopwatch.StartNew();
 
+            var lastSeen = new List<string>();
+
             while (sw.ElapsedMilliseconds < 5000 && pending.Count > 0)
             {
                 var panel = FindTaskResultPanel(form, 500);
                 if (panel != null)
                 {
-                    var texts = GetPanelTexts(panel).Select(Squash).ToList();
+                    var raw = GetPanelTexts(panel).ToList();
+                    if (raw.Count > 0) lastSeen = raw;
+                    var texts = raw.Select(Squash).ToList();
                     foreach (var m in pending.ToList())
                     {
                         if (texts.Any(t => t.Contains(Squash(m)))) pending.Remove(m);
@@ -575,7 +622,8 @@ namespace HRMITestFlaUI.Module.Personnel
                 }
             }
 
-            if (pending.Count > 0) throw new Exception($"ไม่พบข้อความ: '{string.Join("', '", pending)}'");
+            if (pending.Count > 0)
+                throw new Exception($"ไม่พบข้อความ: '{string.Join("', '", pending)}' — ข้อความที่เจอจริง: [{(lastSeen.Count == 0 ? "ไม่พบข้อความใดๆ ใน Task Result" : string.Join(" | ", lastSeen.Distinct()))}]");
             LogSuccess(testName, $"พบข้อความ: {string.Join(",", msgs.Select(m => $"'{m}'"))}");
         }
 
@@ -604,11 +652,42 @@ namespace HRMITestFlaUI.Module.Personnel
 
         private Window OpenForm()
         {
-            var newBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName("New")), 3000)
-                         ?? throw new Exception("หาปุ่ม New ไม่เจอ");
-            newBtn.Click();
+            // หลัง Save and Close แล้วตรวจตาราง ปุ่ม New ยังกดได้แต่คลิกแล้วฟอร์มไม่ขึ้น (ไม่มี popup ค้าง)
+            // → เลือกปุ่ม New ที่มองเห็นจริง, ดึงหน้าหลักขึ้นมาก่อน, คลิกด้วยเมาส์ และลองซ้ำได้ 3 รอบ
+            Window? form = null;
+            AutomationElement? newBtn = null;
+            for (int attempt = 0; attempt < 3 && form == null; attempt++)
+            {
+                if (attempt > 0) { Keyboard.Type(VirtualKeyShort.ESCAPE); RefreshGrid(); }
+                try { _mainWindow.AsWindow()?.SetForeground(); } catch { }
 
-            var form = Retry(FindOpenForm, 8000) ?? throw new Exception("หาฟอร์มไม่เจอ");
+                newBtn = Retry(() => _mainWindow.FindAllDescendants(cf => cf.ByName("New").And(cf.ByControlType(ControlType.Button)))
+                                         .FirstOrDefault(b => { try { return !b.IsOffscreen && !b.BoundingRectangle.IsEmpty && b.IsEnabled; } catch { return false; } })
+                                     ?? _mainWindow.FindFirstDescendant(cf => cf.ByName("New")), 3000)
+                         ?? throw new Exception("หาปุ่ม New ไม่เจอ");
+                ClickByMouse(newBtn);
+                form = Retry(FindOpenForm, 6000);
+            }
+
+            {
+                if (form == null)
+                {
+                    // บอกว่าตอนนั้นมีหน้าต่างอะไรเปิดอยู่ และปุ่ม New อยู่ตรงไหน (ไว้ไล่ปัญหาถ้ายังเปิดไม่ได้)
+                    string wins = "";
+                    try
+                    {
+                        int pid = _mainWindow.Properties.ProcessId.ValueOrDefault;
+                        wins = string.Join(" | ", _automation.GetDesktop().FindAllChildren()
+                            .Where(w => { try { return w.Properties.ProcessId.ValueOrDefault == pid; } catch { return false; } })
+                            .Select(w => { try { return $"'{w.Name}' id='{w.AutomationId}'"; } catch { return "?"; } }));
+                        wins += " || modal: " + string.Join(", ", _mainWindow.AsWindow()?.ModalWindows.Select(m => $"'{m.Name}'") ?? Array.Empty<string>());
+                        var all = _mainWindow.FindAllDescendants(cf => cf.ByName("New"));
+                        wins += $" || New ({all.Length} ตัว): " + string.Join(", ", all.Select(b => { try { return $"{b.ControlType} rect={b.BoundingRectangle} offscreen={b.IsOffscreen}"; } catch { return "?"; } }));
+                    }
+                    catch { }
+                    throw new Exception($"หาฟอร์มไม่เจอ (หน้าต่างของ HRMI: {wins})");
+                }
+            }
             WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId(FirstObjectID)) != null, 4000);
             return form;
         }
@@ -722,6 +801,14 @@ namespace HRMITestFlaUI.Module.Personnel
                       ?? throw new Exception($"ไม่พบช่อง {id}");
             WaitUntil(() => { try { txt.Focus(); return true; } catch { return false; } }, 1000);
 
+            // ช่อง "สาเหตุ" ต้องใช้คีย์บอร์ด + Tab: SetValue เปลี่ยนแค่ข้อความที่แสดง แต่ไม่ commit เข้าฟอร์ม
+            // (ห้ามใช้กับช่องตัวเลข SpinEdit: Ctrl+A ไม่เลือกทศนิยม ล้าง "3.01" แล้วเหลือ ".01")
+            if (id == ReasonFieldId)
+            {
+                TypeByKeyboard(txt, text ?? "", extraBackspace: string.IsNullOrEmpty(text));
+                return;
+            }
+
             if (txt.Patterns.Value.IsSupported)
             {
                 try
@@ -814,7 +901,8 @@ namespace HRMITestFlaUI.Module.Personnel
 
         private void AssertFormClosed(Window form, string testName)
         {
-            if (!WaitUntil(() => form.Properties.IsOffscreen.ValueOrDefault || !form.IsAvailable, 3000))
+            // ค้นหาฟอร์มใหม่แทนการอ่าน property ของ element เดิม (ซึ่งจะ throw หลังฟอร์มถูกปิด)
+            if (!WaitForClosed(() => FindOpenForm(), 3000))
                 throw new Exception("ปิดฟอร์มไม่สำเร็จ");
             LogSuccess(testName, "ฟอร์มถูกปิด");
         }
