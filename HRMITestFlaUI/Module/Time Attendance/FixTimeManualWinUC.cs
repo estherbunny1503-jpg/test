@@ -42,9 +42,9 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private static readonly FixTimeItem[] Step1_FixTimeCases =
         {
             // แถว 6
-            new("TestCase_FixTimeManual_1", false, true,
+            new("TestCase01_FixTimeManual_1", false, true,
                 "Yesterday",
-                "ORG001", "ORG005",
+                "ORG003", "ORG005",
                 "DW001", "POS005",
                 new[] { "พนักงานรายชั่วโมง", "พนักงานรายเหมา" },
                 new[] { "กะงานปกติ" },
@@ -52,9 +52,9 @@ namespace HRMITestFlaUI.Module.Time_Attendance
                 "ปกติ", "Save and New"),
 
             // แถว 7
-            new("TestCase_FixTimeManual_2", false, true,
+            new("TestCase01_FixTimeManual_2", false, true,
                 "This Year",
-                "ORG001", "ORG005",
+                "ORG003", "ORG005",
                 "DW001", "POS005",
                 new[] { "พนักงานรายวัน", "พนักงานรายเดือน" },
                 new[] { "กะงานล่วงเวลา" },
@@ -62,15 +62,17 @@ namespace HRMITestFlaUI.Module.Time_Attendance
                 "ขาดงาน", "Save and New"),
 
             // แถว 8
-            new("TestCase_FixTimeManual_3", true, false,
+            new("TestCase01_FixTimeManual_3", true, false,
                 "This Year",
-                "ORG001", "ORG005",
+                "ORG003", "ORG005",
                 "DW001", "POS005",
                 new[] { "พนักงานรายชั่วโมง", "พนักงานรายเหมา", "พนักงานรายวัน", "พนักงานรายเดือน" },
                 new[] { "กะงานปกติ", "กะงานล่วงเวลา" },
                 "NRM-M01", "OT-EVN02", // ตาม TestStep.ods (เดิม NRM-M02)
                 "ทุกสถานะ", "Save and Close")
         };
+
+        // [ขั้นที่ 2] - [ขั้นที่ 5] ยังไม่มี Test Step ใน TestStep.xlsx สำหรับหน้าจอนี้
 
 
         // =========================================================================================
@@ -82,8 +84,6 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private const string LogSource = "FixTimeManualWinUC";
 
         // ── เมนูหลัก ──
-        private const string TimeAttendanceMenuName = "Time Attendance";
-        private const string FixTimeMenuRowName = "treeListColumn row 8";
         private const string FixTimeMenuLabel = "บันทึกแก้ไข/ปรับปรุงเวลา (Manual)";
 
         // ── Automation ID ──
@@ -97,14 +97,12 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private const string IdBtnRetrieve = "devBtnRetrieve";
 
         // 2.2 ค่า Timeout / Delay ประจำหน้าจอ
-        private const int MenuTransitionDelayMs = 150;
         private const int PageLoadDelayMs = 300;
         private const int StepDelayMs = 300;
         private const int PopupDelayMs = 300;
         private const int ToggleDelayMs = 250;
         private const int RetrieveMaxWaitMs = 30000;
         private const int LookupMaxWaitMs = 90000;   // lookup บางตัว (รหัสกะงาน) โหลดนาน
-        private const int MaxMenuScrollSteps = 10;
 
         /// <summary>
         /// ขั้นที่ 1: เปิดหน้าจอ บันทึกแก้ไข/ปรับปรุงเวลา (Manual) (Progress 0 -> 5)
@@ -122,9 +120,8 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         /// </summary>
         public void RunAllValidationTests()
         {
-            TestLogger.LogInfo(LogSource, "เริ่มทดสอบหน้าจอ บันทึกแก้ไขปรับปรุงเวลา Manual");
-
             var active = Step1_FixTimeCases.Where(r => r.Enabled).ToList();
+            TestLogger.LogInfo(LogSource, $"เริ่มทดสอบ{FixTimeMenuLabel} ({active.Count} รายการ)");
             for (int i = 0; i < active.Count; i++)
             {
                 var r = active[i];
@@ -145,8 +142,23 @@ namespace HRMITestFlaUI.Module.Time_Attendance
                 });
             }
 
-            TestLogger.LogInfo(LogSource, $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
+            LogTotalSummary();
         }
+
+        /// <summary>
+        /// ขั้นที่ 3: แก้ไขข้อมูล (ยังไม่มี Test Step ใน Excel)
+        /// </summary>
+        public void RunEditTests() { }
+
+        /// <summary>
+        /// ขั้นที่ 4: Validation ตอนแก้ไขข้อมูล (ยังไม่มี Test Step ใน Excel)
+        /// </summary>
+        public void RunEditValidationTests() { }
+
+        /// <summary>
+        /// ขั้นที่ 5: ลบข้อมูล (ยังไม่มี Test Step ใน Excel)
+        /// </summary>
+        public void RunDeleteTests() { }
 
         // --- Custom Mapping Logic ประจำหน้าจอนี้ ---
 
@@ -183,37 +195,6 @@ namespace HRMITestFlaUI.Module.Time_Attendance
 
             if (Retry(FindFormRoot, 8000) == null)
                 throw new Exception($"คลิกเมนูแล้ว แต่หน้าจอ '{FixTimeMenuLabel}' ไม่เปิดขึ้น");
-        }
-
-        /* กด Line Down เลื่อนรายการเมนูลงจนเจอเมนูที่ต้องการ */
-        private AutomationElement? ScrollToMenuRow()
-        {
-            var lineDown = _mainWindow.FindFirstDescendant(cf => cf.ByName("Line Down"));
-            if (lineDown != null)
-            {
-                for (int i = 0; i < MaxMenuScrollSteps; i++)
-                {
-                    ClickCenter(lineDown);
-                    var row = Retry(FindFixTimeMenuRow, 500);
-                    if (row != null) return row;
-                }
-            }
-            return Retry(FindFixTimeMenuRow, 3000);
-        }
-
-        /* หาแถวเมนูจากข้อความก่อน ถ้าไม่เจอใช้ 'treeListColumn row 8' (ต้องมีข้อความ (Manual) กันคลิกผิดแถว) */
-        private AutomationElement? FindFixTimeMenuRow()
-        {
-            var byLabel = _mainWindow.FindAllDescendants()
-                .FirstOrDefault(e => TextMatches(e, FixTimeMenuLabel) && HasArea(e) && !IsFormTitle(e));
-            if (byLabel != null) return byLabel;
-
-            var byRow = _mainWindow.FindFirstDescendant(cf => cf.ByName(FixTimeMenuRowName));
-            if (byRow == null || !HasArea(byRow)) return null;
-
-            string value = "";
-            try { value = byRow.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault ?? ""; } catch { }
-            return value.Contains("(Manual)") ? byRow : null;
         }
 
         /* ฟอร์ม Manual — ขอบเขตค้นหา กันไปกดปุ่มของหน้าจออื่นที่เปิดค้าง
@@ -311,7 +292,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             Thread.Sleep(PopupDelayMs);
 
             // รอแค่จนตารางใน popup โหลดข้อมูลเสร็จ (lookup บางตัวโหลดนาน) แล้วค่อยหารหัส
-            // เดิมรอหารหัสนานสุด 90 วินาที ถ้ารหัสไม่มีในข้อมูล (เช่น ORG001 ที่ถูกเปลี่ยนเป็น RP001) จะเสียเวลาฟรีทั้ง 90 วินาที
+            // จำกัดเวลารอหารหัส เพื่อลดเวลาสูญเปล่าเมื่อรหัสไม่มีในข้อมูลปัจจุบัน
             Retry(() => FindFirstPopupDataCell(), LookupMaxWaitMs, 300);
             var cell = Retry(() => FindInPopup(code), 1500, 300);
             if (cell == null)
@@ -356,7 +337,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private readonly AutomationElement _mainWindow;
         private readonly UIA3Automation _automation;
         private int _totalSuccess = 0, _totalFail = 0;
-        private string _activeTestName = "TestCase_FixTimeManual";
+        private string _activeTestName = "TestCase01_FixTimeManual";
         private const int TimeoutMs = 6000;
         private const int PollMs = 300;
 
@@ -825,17 +806,6 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             catch { return false; }
         }
 
-        /* กันไปเจอหัวข้อหน้าต่างฟอร์ม (ชื่อเดียวกับเมนู) แทนแถวเมนู */
-        private static bool IsFormTitle(AutomationElement e)
-        {
-            try
-            {
-                var type = e.Properties.ControlType.ValueOrDefault;
-                return type == ControlType.Window || type == ControlType.TitleBar || type == ControlType.Pane;
-            }
-            catch { return false; }
-        }
-
         private static bool IsInputBox(AutomationElement e)
         {
             try
@@ -911,14 +881,18 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private void LogSuccess(string testName, string msg)
         {
             _totalSuccess++;
-            TestLogger.LogSuccess(testName, msg);
+            TestLogger.LogCaseSuccess(testName, msg);
         }
 
         private void LogFailure(string testName, string msg)
         {
             _totalFail++;
-            TestLogger.LogFailure(testName, msg);
+            TestLogger.LogCaseFailure(testName, msg);
         }
+
+        /* แสดง Log สรุปผลรวมท้ายสุด */
+        private void LogTotalSummary() =>
+            TestLogger.LogInfo(LogSource, $"สรุปผลการทดสอบทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
 
         /* ตัวช่วยวนเช็คเงื่อนไขจนเป็นจริงหรือหมดเวลา */
         private static bool WaitUntil(Func<bool> condition, int timeoutMs = TimeoutMs, int pollMs = 100)

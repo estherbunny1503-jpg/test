@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 
 namespace HRMITestFlaUI.Module.Time_Attendance
@@ -19,49 +20,9 @@ namespace HRMITestFlaUI.Module.Time_Attendance
     /// </summary>
     internal class FrmTimeRecordWiz
     {
-        // ── ตัวแปรสำหรับเก็บออบเจ็กต์หน้าต่างหลัก, ระบบ Automation และตัวนับผลการทดสอบ (Success/Fail) ──
-        private readonly AutomationElement _mainWindow;
-        private readonly UIA3Automation _automation;
-        private int _totalSuccess = 0, _totalFail = 0;
-        private string _activeTestName = "TestCase_TimeRecordWiz";
-
-        // ขั้นตอนที่ไม่สำเร็จในแถวปัจจุบัน (ทำขั้นตอนถัดไปต่อจนครบ แล้วค่อยสรุปว่าแถวนั้น FAIL)
-        private readonly List<string> _stepErrors = new List<string>();
-
-        private const string LogSource = "FrmTimeRecordWiz";
-
-        // ── ค่าคงที่สำหรับ Timeout / Delay ──
-        private const int TimeoutMs = 6000;
-        private const int PollMs = 300;
-        private const int MenuTransitionDelayMs = 400;
-        private const int PageLoadDelayMs = 800;
-        private const int StepDelayMs = 800;
-        private const int PopupDelayMs = 600;
-        private const int ToggleDelayMs = 250;
-        private const int RetrieveMaxWaitMs = 30000;
-        private const int LookupMaxWaitMs = 90000;             // lookup บางตัว (รหัสกะงาน) โหลดนาน
-        private const int ProcessMaxWaitMs = 10 * 60 * 1000;   // รอประมวลผลได้นานสุด 10 นาที
-        private const int MaxMenuScrollSteps = 10;
-
-        // ── เมนูหลัก ──
-        private const string TimeAttendanceMenuName = "Time Attendance";
-        private const string MenuRowName = "treeListColumn row 7";
-        private const string MenuLabel = "ประมวลผลเวลาการทำงาน";
-
-        // ── Automation ID หน้า 1 (Wizard) ──
-        private const string IdStartDate = "devDtStartDate";
-        private const string IdEndDate = "devDtEndDate";
-        private const string IdBtnNext = "devBtnNext";
-
-        // ── Automation ID หน้าสุดท้าย (หน้าต่าง Manual — ชื่อเดียวกับ FixTimeManualWinUC) ──
-        private const string IdOrgUnit = "rangeManagerOrgUnit";
-        private const string IdPosition = "RangeMgPosition";
-        private const string IdEmpType = "ChkComboEditEmpType";
-        private const string IdDateOption = "comboDateOption";
-        private const string IdTimeShiftType = "ChkComboEditTimeShiftType";
-        private const string IdTimeShift = "rangeManagerTS";
-        private const string IdStatus = "devRdgStatus";
-        private const string IdBtnRetrieve = "devBtnRetrieve";
+        // =========================================================================================
+        // หมวดที่ 1: ข้อมูลการทดสอบ (Test Data)
+        // =========================================================================================
 
         private static readonly string[][] ThaiMonthNames =
         {
@@ -71,9 +32,74 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             new[] { "ตุลาคม", "ต.ค." }, new[] { "พฤศจิกายน", "พ.ย." }, new[] { "ธันวาคม", "ธ.ค." },
         };
 
+        // =========================================================================================
+        // หมวดที่ 2: ส่วนที่ขึ้นกับหน้าจอนั้นๆ (Screen-Specific Implementation)
+        // =========================================================================================
+
+        // 2.1 ตัวแปรสถานะของหน้าจอ
+        // ── ตัวแปรสำหรับเก็บออบเจ็กต์หน้าต่างหลัก, ระบบ Automation และตัวนับผลการทดสอบ (Success/Fail) ──
+        private readonly AutomationElement _mainWindow;
+        private readonly UIA3Automation _automation;
+        private int _totalSuccess = 0, _totalFail = 0;
+        private string _activeTestName = "TestCase_TimeRecordWiz";
+
+        // ขั้นตอนที่ไม่สำเร็จในแถวปัจจุบัน (ทำขั้นตอนถัดไปต่อจนครบ แล้วค่อยสรุปว่าแถวนั้น FAIL)
+        private readonly List<string> _stepErrors = new List<string>();
+        private readonly List<string> _scenarioNotes = new List<string>();
+
+        private const string LogSource = "FrmTimeRecordWiz";
+
+        // 2.2 ค่าคงที่สำหรับ Timeout / Delay
+        private const int TimeoutMs = 6000;
+        private const int PollMs = 300;
+        private const int MenuTransitionDelayMs = 400;
+        private const int PageLoadDelayMs = 400;
+        private const int StepDelayMs = 350;
+        private const int PopupDelayMs = 300;
+        private const int ToggleDelayMs = 150;
+        private const int RetrieveMaxWaitMs = 30000;
+        private const int LookupMaxWaitMs = 60000;             // เผื่อเวลาฐานข้อมูลโหลด lookup แต่จำกัดเวลารอสูงสุด
+        private const int ProcessMaxWaitMs = 10 * 60 * 1000;   // รอประมวลผลได้นานสุด 10 นาที
+        private const int MaxMenuScrollSteps = 10;
+
+        // 2.3 เมนูหลัก
+        private const string TimeAttendanceMenuName = "Time Attendance";
+        private const string MenuRowName = "treeListColumn row 7";
+        private const string MenuLabel = "ประมวลผลเวลาการทำงาน";
+
+        // 2.4 Automation ID หน้า 1 (Wizard)
+        private const string IdStartDate = "devDtStartDate";
+        private const string IdEndDate = "devDtEndDate";
+        private const string IdBtnNext = "devBtnNext";
+
+        // 2.5 Automation ID หน้าสุดท้าย (หน้าต่าง Manual — ชื่อเดียวกับ FixTimeManualWinUC)
+        private const string IdOrgUnit = "rangeManagerOrgUnit";
+        private const string IdPosition = "RangeMgPosition";
+        private const string IdEmpType = "ChkComboEditEmpType";
+        private const string IdDateOption = "comboDateOption";
+        private const string IdTimeShiftType = "ChkComboEditTimeShiftType";
+        private const string IdTimeShift = "rangeManagerTS";
+        private const string IdStatus = "devRdgStatus";
+        private const string IdBtnRetrieve = "devBtnRetrieve";
+
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
 
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int command);
+
+        [DllImport("user32.dll")]
+        private static extern bool BringWindowToTop(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SetActiveWindow(IntPtr hWnd);
+
+        private const int SwRestore = 9;
+
+        // 2.6 Constructor
         /* Constructor สำหรับรับค่า MainWindow และ Automation Instance เข้ามาใช้งานภายในคลาส */
         public FrmTimeRecordWiz(AutomationElement mainWindow, UIA3Automation automation)
         {
@@ -81,10 +107,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             _automation = automation ?? throw new ArgumentNullException(nameof(automation));
         }
 
-        // -------------------------------------------------------------
-        // 1. เปิดหน้าจอ ประมวลผลเวลาการทำงาน (Navigation)
-        //    สัดส่วน Progress ของเมธอดนี้: 0 -> 5
-        // -------------------------------------------------------------
+        // 2.7 Navigation
         /* Method นำทางไปยังหน้าจอผ่านแท็บ Time Attendance -> เมนูแถวที่ 7 */
         public void NavigateToTimeRecordWiz()
         {
@@ -93,10 +116,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             TestProgressHelper.Report(5, "Time Record Wizard opened");
         }
 
-        // -------------------------------------------------------------
-        // 2. ทดสอบประมวลผลเวลาการทำงาน (Test Step Rows)
-        //    สัดส่วน Progress ของเมธอดนี้: 5 -> 100
-        // -------------------------------------------------------------
+        // 2.8 Test Step Flow
         /* Method รันทุกแถวของ Test Step แล้วสรุปผลรวม */
         public void RunAllValidationTests()
         {
@@ -111,6 +131,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
                 RunScenario(s.Name, s.Navigate, s.Run);
 
             TestLogger.LogInfo(LogSource, $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
+            EnsureApplicationExits();
         }
 
         /* แถว 6: กรอกวันที่ -> Next 3 ครั้ง -> รอประมวลผล กด Yes -> กรอกเงื่อนไขหน้า Manual -> ปิด -> Finish */
@@ -126,7 +147,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             Step("รอประมวลผล แล้วกด Yes", WaitProcessAndClickYes, 45);
 
             Do("รูปแบบวันที่", () => SelectDropdown(IdDateOption, "This Year"), 50);
-            Do("รหัสหน่วยงาน", () => SelectRange(IdOrgUnit, "ORG001", "ORG005"), 57);
+            Do("รหัสหน่วยงาน", () => SelectRange(IdOrgUnit, "ORG003", "ORG005"), 57);
             Do("ตำแหน่งงาน", () => SelectRange(IdPosition, "DW001", "POS005"), 64);
             Do("ประเภทพนักงาน", () => CheckItems(IdEmpType, "พนักงานรายชั่วโมง", "พนักงานรายเหมา", "พนักงานรายวัน", "พนักงานรายเดือน"), 70);
             Do("ประเภทกะงาน", () => CheckItems(IdTimeShiftType, "กะงานปกติ", "กะงานล่วงเวลา"), 76);
@@ -150,10 +171,13 @@ namespace HRMITestFlaUI.Module.Time_Attendance
                 if (navigate && FindFormRoot() == null) OpenMenu();
 
                 _stepErrors.Clear();
+                _scenarioNotes.Clear();
                 step();
                 if (_stepErrors.Count > 0) throw new Exception(string.Join(" || ", _stepErrors));
 
-                LogSuccess(testName, "ทำสำเร็จตามขั้นตอนครบถ้วน");
+                LogSuccess(testName, _scenarioNotes.Count == 0
+                    ? "ทำสำเร็จตามขั้นตอนครบถ้วน"
+                    : $"ทำสำเร็จตามขั้นตอนครบถ้วน ({string.Join("; ", _scenarioNotes)})");
             }
             catch (Exception ex) { LogFailure(testName, $"ไม่สำเร็จ: {DescribeException(ex)}"); }
         }
@@ -161,8 +185,14 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         /* Method ทำขั้นตอนหนึ่ง ถ้าไม่สำเร็จให้จดไว้แล้วทำขั้นตอนถัดไปต่อ + รายงาน Progress */
         private void Do(string stepName, Action action, int progress)
         {
-            try { action(); LogStepSuccess(stepName); }
-            catch (Exception ex) { _stepErrors.Add($"{stepName}: {ex.Message}"); LogStepFailure(stepName, ex); }
+            var sw = Stopwatch.StartNew();
+            try { action(); LogStepSuccess($"{stepName} ({sw.Elapsed.TotalSeconds:0.0} วิ)"); }
+            catch (Exception ex)
+            {
+                _stepErrors.Add($"{stepName}: {ex.Message}");
+                LogStepFailure(stepName, ex);
+                throw new Exception($"ขั้นตอน '{stepName}' ไม่สำเร็จ; หยุดแถวนี้เพื่อไม่ทำขั้นตอนถัดไปบนข้อมูลที่ไม่ครบ: {ex.Message}", ex);
+            }
             TestProgressHelper.Report(progress, stepName);
         }
 
@@ -248,15 +278,92 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         /* Method หน้าต่างทั้งหมดของโปรแกรม (ยกเว้นหน้าจอหลัก) ทั้งแบบลอยและแบบอยู่ในหน้าจอหลัก */
         private List<AutomationElement> GetAppWindows()
         {
-            var windows = new List<AutomationElement>();
+            var roots = new List<AutomationElement>();
             try
             {
                 int pid = _mainWindow.Properties.ProcessId.ValueOrDefault;
-                windows.AddRange(_automation.GetDesktop().FindAllChildren(cf => cf.ByProcessId(pid)).Where(w => !w.Equals(_mainWindow)));
+                roots.AddRange(_automation.GetDesktop().FindAllChildren(cf => cf.ByProcessId(pid)).Where(w => !w.Equals(_mainWindow)));
             }
             catch { }
-            try { windows.AddRange(_mainWindow.FindAllDescendants(cf => cf.ByControlType(ControlType.Window))); } catch { }
-            return windows.Where(HasArea).ToList();
+            // lookup popup อาจฝังลึกกว่าลูกชั้นเดียวของหน้าต่างหลัก จึงต้องค้น Window ทั้งต้นไม้ (เหมือนเดิมที่ผ่าน)
+            try { roots.AddRange(_mainWindow.FindAllDescendants(cf => cf.ByControlType(ControlType.Window))); } catch { }
+
+            var windows = roots.Concat(roots.SelectMany(SafeChildWindows))
+                .Distinct()
+                .Where(w => !w.Equals(_mainWindow) && HasArea(w))
+                .ToList();
+            return windows;
+        }
+
+        private static IEnumerable<AutomationElement> SafeChildWindows(AutomationElement window)
+        {
+            try { return window.FindAllChildren(cf => cf.ByControlType(ControlType.Window)); }
+            catch { return Array.Empty<AutomationElement>(); }
+        }
+
+        /* หน้าต่างย่อยของ HRMI รวม popup ที่เพิ่งเปิดจากปุ่มเลือกข้อมูล */
+        private IEnumerable<AutomationElement> FindHrmiWindows()
+        {
+            int processId = _mainWindow.Properties.ProcessId.ValueOrDefault;
+            IntPtr mainHandle = _mainWindow.Properties.NativeWindowHandle.ValueOrDefault;
+            var windows = new List<AutomationElement>();
+            try { windows.AddRange(_automation.GetDesktop().FindAllChildren(cf => cf.ByProcessId(processId))); } catch { }
+            try
+            {
+                windows.AddRange(_mainWindow.FindAllDescendants(cf => cf.ByControlType(ControlType.Window)));
+            }
+            catch { }
+
+            return windows.Distinct().Where(w =>
+            {
+                try
+                {
+                    return w.Properties.NativeWindowHandle.ValueOrDefault != mainHandle
+                        && w.Properties.ProcessId.ValueOrDefault == processId
+                        && w.Properties.ControlType.ValueOrDefault == ControlType.Window
+                        && HasArea(w);
+                }
+                catch { return false; }
+            }).ToList();
+        }
+
+        private AutomationElement? FindLookupPopup(HashSet<IntPtr>? previousHandles = null)
+        {
+            int processId = _mainWindow.Properties.ProcessId.ValueOrDefault;
+            // Owned lookup windows may be exposed by FlaUI as modal windows of the Manual form,
+            // not as direct desktop children of the HRMI process.
+            try
+            {
+                var form = FindFormRoot()?.AsWindow();
+                var modal = form?.ModalWindows.FirstOrDefault();
+                if (modal != null && modal.IsAvailable && HasArea(modal) && !IsMainForm(modal))
+                    return modal;
+            }
+            catch { }
+
+            foreach (var window in FindHrmiWindows())
+            {
+                try
+                {
+                    if (IsMainForm(window)) continue;
+                    string automationId = window.AutomationId ?? "";
+                    if (automationId.Length > 0 && automationId.All(char.IsDigit)) continue;
+                    IntPtr handle = window.Properties.NativeWindowHandle.ValueOrDefault;
+                    var select = window.FindFirstDescendant(cf => cf.ByName("Select"))
+                        ?? window.FindFirstDescendant(cf => cf.ByName("เลือก"));
+                    var grid = window.FindFirstDescendant(cf => cf.ByControlType(ControlType.DataGrid)
+                        .Or(cf.ByControlType(ControlType.Table))
+                        .Or(cf.ByControlType(ControlType.List))
+                        .Or(cf.ByControlType(ControlType.DataItem)));
+                    bool isNew = previousHandles != null && handle != IntPtr.Zero && !previousHandles.Contains(handle);
+                    bool belongsToHrmi = window.Properties.ProcessId.ValueOrDefault == processId;
+                    bool looksLikeLookup = select != null || grid != null;
+                    if (isNew && (belongsToHrmi || looksLikeLookup)) return window;
+                    if (belongsToHrmi && looksLikeLookup) return window;
+                }
+                catch { }
+            }
+            return null;
         }
 
         /* หน้าต่าง Wizard (มีปุ่ม Next) */
@@ -653,13 +760,184 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         /* Method กด ... เลือก <from> ถึง กด ... เลือก <to> */
         private void SelectRange(string automationId, string fromCode, string toCode)
         {
-            PickLookup(automationId, 0, fromCode);
-            PickLookup(automationId, 1, toCode);
+            bool allowOrgBoundary = true; // รหัสตาม TestStep อาจไม่มีในข้อมูล → ใช้แถวแรก/สุดท้ายแทน (เหมือน FixTimeManualWinUC)
+            try
+            {
+                PickLookup(automationId, 0, fromCode, allowOrgBoundary);
+                PickLookup(automationId, 1, toCode, allowOrgBoundary);
+            }
+            catch (Exception lookupError)
+            {
+                if (!allowOrgBoundary) throw;
+                if (TryEnterRangeCodes(automationId, fromCode, toCode, out var entryDetails))
+                {
+                    _scenarioNotes.Add($"popup หน่วยงานไม่เปิด; กรอกรหัส {fromCode} ถึง {toCode} ในช่องช่วงและยืนยันค่าจาก Edit ลูกแล้ว");
+                    return;
+                }
+                throw new Exception($"{lookupError.Message} | ตรวจการกรอกตรง: {entryDetails}", lookupError);
+            }
+        }
+
+        /* Fallback สำหรับ RangeManager ที่ popup ไม่เปิด: กรอกรหัสในช่องต้นทาง/ปลายทางและตรวจค่ากลับ */
+        private bool TryEnterRangeCodes(string automationId, string fromCode, string toCode, out string details)
+        {
+            details = "ยังไม่ได้ลองกรอก";
+            try
+            {
+                CancelLookup();
+                var range = FindById(automationId);
+
+                // RangeManager exposes the actual endpoint editors with these IDs. Each editor
+                // also contains nested Edit children, so selecting the first two Edit descendants
+                // writes twice to the begin field and leaves the end field blank.
+                var beginField = range.FindFirstDescendant(cf => cf.ByAutomationId("devBtnEditBegin"));
+                var endField = range.FindFirstDescendant(cf => cf.ByAutomationId("devBtnEditEnd"));
+                if (beginField != null && endField != null && IsVisible(beginField) && IsVisible(endField))
+                {
+                    TypeRangeValue(FindEndpointInput(beginField), fromCode);
+                    TypeRangeValue(FindEndpointInput(endField), toCode);
+                    Thread.Sleep(ToggleDelayMs);
+                    bool beginMatches = EndpointContains(beginField, fromCode);
+                    bool endMatches = EndpointContains(endField, toCode);
+                    details = $"begin=[{DescribeEndpointValues(beginField)}] end=[{DescribeEndpointValues(endField)}]";
+                    if (beginMatches && endMatches)
+                    {
+                        return true;
+                    }
+
+                    // The endpoint edits exist even if UIA omits their Value pattern. Do not type
+                    // into arbitrary duplicate Edit descendants, which can all belong to Begin.
+                    return false;
+                }
+
+                var edits = range.FindAllDescendants(cf => cf.ByControlType(ControlType.Edit))
+                    .Where(IsVisible).OrderBy(e => e.BoundingRectangle.Left).ToList();
+
+                string[] expected = { fromCode, toCode };
+                if (edits.Count >= 2)
+                {
+                    for (int i = 0; i < 2; i++)
+                    {
+                        ClickCenter(edits[i]);
+                        Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
+                        Keyboard.Type(expected[i]);
+                        LeaveField();
+                    }
+                }
+                else
+                {
+                    // RangeManager รุ่นนี้ซ่อนช่อง Edit ใน UIA แต่ยัง expose ปุ่มทั้งสองด้าน
+                    var buttons = range.FindAllDescendants(cf => cf.ByControlType(ControlType.Button))
+                        .Where(IsUsableButton).OrderBy(b => b.BoundingRectangle.Left).ToList();
+                    if (buttons.Count < 2) return false;
+                    var firstButton = buttons[0].BoundingRectangle;
+                    var lastButton = buttons[1].BoundingRectangle;
+                    int y = (int)(range.BoundingRectangle.Top + range.BoundingRectangle.Height / 2);
+                    int fromX = (int)((range.BoundingRectangle.Left + firstButton.Left) / 2);
+                    int toX = (int)((firstButton.Right + lastButton.Left) / 2);
+                    TypeRangeValueAt(new Point(fromX, y), fromCode);
+                    TypeRangeValueAt(new Point(toX, y), toCode);
+                }
+
+                Thread.Sleep(ToggleDelayMs);
+                if (edits.Count >= 2 && EndpointContains(edits[0], fromCode) && EndpointContains(edits[1], toCode)) return true;
+                bool found = FindInCurrentForm(fromCode) != null && FindInCurrentForm(toCode) != null;
+                details = $"editCount={edits.Count}; formContainsCodes={found}";
+                return found;
+            }
+            catch (Exception ex) { details = $"exception={ex.Message}"; return false; }
+        }
+
+        private static AutomationElement FindEndpointInput(AutomationElement endpoint)
+        {
+            try
+            {
+                var edits = endpoint.FindAllDescendants(cf => cf.ByControlType(ControlType.Edit));
+                return edits.LastOrDefault() ?? endpoint;
+            }
+            catch { return endpoint; }
+        }
+
+        private static bool EndpointContains(AutomationElement endpoint, string expected)
+        {
+            try
+            {
+                return new[] { endpoint }.Concat(endpoint.FindAllDescendants())
+                    .Any(e =>
+                    {
+                        string value = "";
+                        try { value = e.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault ?? ""; } catch { }
+                        if (string.IsNullOrWhiteSpace(value)) value = SafeName(e);
+                        return Normalize(value).Contains(Normalize(expected), StringComparison.OrdinalIgnoreCase);
+                    });
+            }
+            catch { return false; }
+        }
+
+        private static string DescribeEndpointValues(AutomationElement endpoint)
+        {
+            try
+            {
+                return string.Join(" / ", new[] { endpoint }.Concat(endpoint.FindAllDescendants())
+                    .Select(DescribeEndpointElement).Where(s => !s.EndsWith("=''", StringComparison.Ordinal)).Distinct());
+            }
+            catch (Exception ex) { return ex.Message; }
+        }
+
+        private static string DescribeEndpointElement(AutomationElement element)
+        {
+            string value = "", controlType = "?", id = SafeAutomationId(element);
+            bool valuePattern = false, readOnly = true;
+            try { controlType = element.ControlType.ToString(); } catch { }
+            try
+            {
+                var pattern = element.Patterns.Value.PatternOrDefault;
+                valuePattern = pattern != null;
+                if (pattern != null)
+                {
+                    value = pattern.Value.ValueOrDefault ?? "";
+                    readOnly = pattern.IsReadOnly;
+                }
+            }
+            catch { }
+            if (string.IsNullOrWhiteSpace(value)) value = SafeName(element);
+            return $"{controlType} id='{id}' valuePattern={valuePattern} readOnly={readOnly} value='{value}'";
+        }
+
+        private static void TypeRangeValueAt(Point point, string value)
+        {
+            ClickAt(point);
+            Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
+            Keyboard.Type(value);
+            LeaveField();
+        }
+
+        private static void TypeRangeValue(AutomationElement field, string value)
+        {
+            try
+            {
+                var valuePattern = field.Patterns.Value.PatternOrDefault;
+                if (valuePattern != null && !valuePattern.IsReadOnly)
+                    valuePattern.SetValue(value);
+            }
+            catch { }
+
+            if (EndpointContains(field, value))
+            {
+                LeaveField();
+                return;
+            }
+
+            ClickCenter(field);
+            Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
+            Keyboard.Type(value);
+            LeaveField();
         }
 
         /* Method กดปุ่ม ... ลำดับที่ระบุ (เรียงซ้ายไปขวา: 0 = จาก, 1 = ถึง) แล้วดับเบิลคลิกรหัสใน lookup */
-        private void PickLookup(string automationId, int buttonIndex, string code)
+        private void PickLookup(string automationId, int buttonIndex, string code, bool allowBoundaryFallback = false)
         {
+            ActivateCurrentForm();
             var range = FindById(automationId);
 
             var buttons = Retry(() =>
@@ -670,19 +948,158 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             }, 5000)
                 ?? throw new Exception($"หาปุ่ม '...' ลำดับที่ {buttonIndex + 1} ใน '{automationId}' ไม่เจอ");
 
+            var previousHandles = FindHrmiWindows()
+                .Select(w => { try { return w.Properties.NativeWindowHandle.ValueOrDefault; } catch { return IntPtr.Zero; } })
+                .Where(h => h != IntPtr.Zero).ToHashSet();
+
             ClickCenter(buttons[buttonIndex]);
+            var popup = Retry(() => FindLookupPopup(previousHandles), 2500, 200);
+            if (popup == null)
+            {
+                // DevExpress/WinForms lookup buttons sometimes ignore coordinate clicks when the
+                // editor is not the active child. FlaUI's element click uses the provider's click
+                // point and gives the control another native mouse activation path.
+                try { buttons[buttonIndex].Click(); } catch { }
+                popup = Retry(() => FindLookupPopup(previousHandles), 1500, 200);
+            }
+            if (popup == null)
+            {
+                InvokeLookupButton(buttons[buttonIndex]);
+                popup = Retry(() => FindLookupPopup(previousHandles), 2500, 200);
+            }
+            if (popup == null)
+            {
+                try
+                {
+                    buttons[buttonIndex].Focus();
+                    Keyboard.Press(VirtualKeyShort.SPACE);
+                    Keyboard.Release(VirtualKeyShort.SPACE);
+                }
+                catch { }
+                popup = Retry(() => FindLookupPopup(previousHandles), 4000, 200)
+                    ?? Retry(() => FindLookupPopup(), 1000, 200);
+            }
+            if (popup == null)
+            {
+                // DevExpress ButtonEdit lookup controls also open from F4 on the endpoint editor.
+                var endpointId = buttonIndex == 0 ? "devBtnEditBegin" : "devBtnEditEnd";
+                var endpoint = range.FindFirstDescendant(cf => cf.ByAutomationId(endpointId));
+                if (endpoint != null)
+                {
+                    try
+                    {
+                        endpoint.Focus();
+                        Keyboard.Type(VirtualKeyShort.F4);
+                    }
+                    catch { }
+                    popup = Retry(() => FindLookupPopup(previousHandles), 3000, 200)
+                        ?? Retry(() => FindLookupPopup(), 1000, 200);
+                }
+            }
             Thread.Sleep(PopupDelayMs);
 
-            var cell = Retry(() => FindInPopup(code), LookupMaxWaitMs, 500);
+            // รอเฉพาะจนตารางโหลดแถวแรก แล้วค่อยหารหัสสั้นๆ ไม่รอเต็ม 60 วิเมื่อรหัสไม่มีในข้อมูล
+            if (popup != null) Retry(() => FindBoundaryLookupRow(popup, 0), LookupMaxWaitMs, 300);
+            var cell = popup == null ? null : Retry(() => FindInPopup(popup, code), 2000, 300);
+            // RangeManager บางหน้าจอแสดง lookup เป็น popup ฝังใน Manual form ไม่ใช่ top-level Window.
+            // ค้นใน form ที่กำลังทำงานด้วยเพื่อรองรับกรณีนั้น (เทียบข้อความตรงและต้องมองเห็นเท่านั้น).
+            cell ??= Retry(() => FindInCurrentForm(code), 3000, 250);
+            if (cell == null && allowBoundaryFallback)
+            {
+                cell = popup == null ? null : FindBoundaryLookupRow(popup, buttonIndex);
+                if (cell != null)
+                {
+                    string actual = GetControlValue(cell);
+                    if (string.IsNullOrWhiteSpace(actual)) actual = SafeName(cell);
+                    _scenarioNotes.Add($"ไม่พบหน่วยงาน {code} ใช้ค่าขอบช่วง '{actual}' แทน");
+                }
+            }
             if (cell == null)
             {
-                var popupInfo = DescribePopupState();
+                var popupInfo = popup == null ? DescribePopupState() : $"popup ที่เจอ: '{SafeName(popup)}' แต่ไม่มีรหัส '{code}'";
                 CancelLookup();
-                var buttonInfo = string.Join(", ", buttons.Select((b, i) => $"[{i}] '{SafeName(b)}' id='{SafeAutomationId(b)}'"));
-                throw new Exception($"หารหัส '{code}' ในหน้าต่างเลือกข้อมูลของ '{automationId}' ไม่เจอ | ปุ่มใน range: {buttonInfo} | {popupInfo}");
+                var buttonInfo = string.Join(", ", buttons.Select((b, i) =>
+                {
+                    var r = b.BoundingRectangle;
+                    return $"[{i}] '{SafeName(b)}' id='{SafeAutomationId(b)}' rect=({r.Left},{r.Top},{r.Width},{r.Height})";
+                }));
+                var rangeRect = range.BoundingRectangle;
+                var seenWindows = string.Join(" | ", FindHrmiWindows().Take(8).Select(w =>
+                {
+                    try { return $"'{SafeName(w)}' pid={w.Properties.ProcessId.ValueOrDefault} id='{w.AutomationId}'"; }
+                    catch { return $"'{SafeName(w)}'"; }
+                }));
+                var rangeChildren = string.Join(" | ", range.FindAllDescendants().Take(30).Select(e =>
+                {
+                    try
+                    {
+                        var r = e.BoundingRectangle;
+                        return $"{e.ControlType} name='{SafeName(e)}' id='{SafeAutomationId(e)}' enabled={e.Properties.IsEnabled.ValueOrDefault} rect=({r.Left},{r.Top},{r.Width},{r.Height})";
+                    }
+                    catch { return "<อ่าน child ไม่ได้>"; }
+                }));
+                throw new Exception($"หารหัส '{code}' ในหน้าต่างเลือกข้อมูลของ '{automationId}' ไม่เจอ | range=({rangeRect.Left},{rangeRect.Top},{rangeRect.Width},{rangeRect.Height}) | ปุ่ม: {buttonInfo} | children: {rangeChildren} | {popupInfo} | HRMI windows: {seenWindows}");
             }
 
             DoubleClickCenter(cell);
+        }
+
+        /* Wizard อาจอยู่เหนือหน้าต่าง Manual หลังประมวลผล จึงนำฟอร์มที่มี RangeManager ขึ้นหน้าสุดก่อนคลิก */
+        private void ActivateCurrentForm()
+        {
+            var form = FindFormRoot();
+            if (form == null) return;
+            try
+            {
+                IntPtr handle = form.Properties.NativeWindowHandle.ValueOrDefault;
+                if (handle != IntPtr.Zero)
+                {
+                    ShowWindow(handle, SwRestore);
+                    BringWindowToTop(handle);
+                    SetForegroundWindow(handle);
+                    SetActiveWindow(handle);
+                }
+                form.Focus();
+                var titleBar = form.FindFirstDescendant(cf => cf.ByControlType(ControlType.TitleBar));
+                if (titleBar != null && IsVisible(titleBar)) ClickCenter(titleBar);
+                Thread.Sleep(100);
+            }
+            catch { }
+        }
+
+        private static void InvokeLookupButton(AutomationElement button)
+        {
+            try
+            {
+                var invoke = button.Patterns.Invoke.PatternOrDefault;
+                if (invoke != null) { invoke.Invoke(); return; }
+            }
+            catch { }
+            try
+            {
+                var legacy = button.Patterns.LegacyIAccessible.PatternOrDefault;
+                if (legacy != null) legacy.DoDefaultAction();
+            }
+            catch { }
+        }
+
+        /* ใช้แถวแรก/แถวสุดท้ายของ lookup เป็นขอบเขตสำรองเมื่อไม่พบรหัสหน่วยงาน
+           เพื่อครอบคลุมหน่วยงานที่มีจริง พร้อมบอกค่าทดแทนในผลสรุปของกรณีทดสอบ */
+        private static AutomationElement? FindBoundaryLookupRow(AutomationElement window, int buttonIndex)
+        {
+            try
+            {
+                var rows = window.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem))
+                    .Select(e => (Element: e, Match: System.Text.RegularExpressions.Regex.Match(SafeName(e), @"^(.*) row (\d+)$")))
+                    .Where(x => x.Match.Success).ToList();
+                if (rows.Count == 0) return null;
+                string firstColumn = rows[0].Match.Groups[1].Value;
+                var ordered = rows.Where(x => x.Match.Groups[1].Value == firstColumn)
+                    .OrderBy(x => int.Parse(x.Match.Groups[2].Value)).ToList();
+                if (ordered.Count > 0) return buttonIndex == 0 ? ordered[0].Element : ordered[^1].Element;
+            }
+            catch { }
+            return null;
         }
 
         /* Method กดปุ่ม แสดงรายการข้อมูล แล้วรอจนปุ่มกลับมาใช้งานได้ */
@@ -727,37 +1144,68 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             catch { }
         }
 
-        /* Method หารหัสไม่เจอ ให้กด Cancel (หรือ Esc) ปิดหน้าต่างเลือกข้อมูล */
+        /* Method ปิด popup lookup ที่เปิดอยู่; ห้ามส่ง Esc เมื่อไม่มี popup เพราะจะกระทบฟอร์ม Manual */
         private void CancelLookup()
         {
             try
             {
-                var cancel = GetPopupWindows()
+                var popups = GetPopupWindows().ToList();
+                var cancel = popups
                     .Select(w => { try { return w.FindFirstDescendant(cf => cf.ByName("Cancel").Or(cf.ByName("ยกเลิก"))); } catch { return null; } })
                     .FirstOrDefault(b => b != null && HasArea(b));
 
                 if (cancel != null) ClickCenter(cancel);
-                else PressKey(VirtualKeyShort.ESCAPE);
-                Thread.Sleep(StepDelayMs);
+                else if (popups.Any(w => !IsMainForm(w))) PressKey(VirtualKeyShort.ESCAPE);
+                if (cancel != null || popups.Any(w => !IsMainForm(w))) Thread.Sleep(StepDelayMs);
             }
             catch { }
         }
 
-        /* Method หาข้อความใน popup ที่แยกออกมาก่อน แล้วค่อยหาใน tree หน้าจอหลัก (ข้ามช่อง Edit/ComboBox) */
+        /* ค้นรหัสใน popup lookup เท่านั้น; ไม่ค้นทั้งหน้าต่างหลักซ้ำ เพราะมี grid พนักงานขนาดใหญ่ */
+        private AutomationElement? FindInPopup(AutomationElement popup, string text)
+        {
+            try
+            {
+                var target = Normalize(text);
+                return popup.FindAllDescendants().FirstOrDefault(e =>
+                {
+                    if (!HasArea(e)) return false;
+                    // ค่าในเซลล์อยู่ใน Value ส่วน Name เป็นชื่อโครงสร้าง (เช่น "รหัสตำแหน่งงาน row 0") จึงต้องเช็คทั้งคู่
+                    if (Normalize(ReadText(e)).Contains(target, StringComparison.OrdinalIgnoreCase)) return true;
+                    try
+                    {
+                        var value = e.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault;
+                        return Normalize(value).Contains(target, StringComparison.OrdinalIgnoreCase);
+                    }
+                    catch { return false; }
+                });
+            }
+            catch { return null; }
+        }
+
+        private AutomationElement? FindInCurrentForm(string text)
+        {
+            var form = FindFormRoot();
+            if (form == null) return null;
+            string target = Normalize(text);
+            try
+            {
+                return form.FindAllDescendants().FirstOrDefault(e =>
+                    IsVisible(e) && string.Equals(Normalize(ReadText(e)), target, StringComparison.OrdinalIgnoreCase));
+            }
+            catch { return null; }
+        }
+
+        /* Dropdowns ไม่ใช่ lookup แบบ range จึงค้นใน popup ที่เปิดอยู่ทุกหน้าต่าง */
         private AutomationElement? FindInPopup(string text)
         {
-            foreach (var window in GetPopupWindows())
+            foreach (var popup in GetPopupWindows())
             {
-                try
-                {
-                    var match = window.FindAllDescendants().FirstOrDefault(e => TextMatches(e, text) && HasArea(e));
-                    if (match != null) return match;
-                }
-                catch { }
+                if (IsMainForm(popup)) continue;
+                var match = FindInPopup(popup, text);
+                if (match != null) return match;
             }
-
-            try { return _mainWindow.FindAllDescendants().FirstOrDefault(e => !IsInputBox(e) && TextMatches(e, text) && HasArea(e)); }
-            catch { return null; }
+            return null;
         }
 
         /* Method สรุปสิ่งที่เห็นใน popup ตอนหาไม่เจอ (ใส่ใน log) */
@@ -781,9 +1229,11 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             catch { return "(อ่านข้อมูล popup ไม่ได้)"; }
         }
 
-        // -------------------------------------------------------------
-        // Element Utilities
-        // -------------------------------------------------------------
+        // =========================================================================================
+        // หมวดที่ 3: ส่วนการทำงานกลางที่ตายตัว (Common / Reusable Helpers)
+        // =========================================================================================
+
+        // 3.1 จัดการหน้าต่างและค้นหา Element
 
         private AutomationElement? GetActiveTopLevelWindow()
         {
@@ -1010,14 +1460,32 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private void LogSuccess(string testName, string msg)
         {
             _totalSuccess++;
-            TestLogger.LogSuccess(testName, msg);
+            TestLogger.LogCaseSuccess(testName, msg);
         }
 
         /* Method บันทึกผลเทสเมื่อล้มเหลว (เพิ่มจำนวน Fail) */
         private void LogFailure(string testName, string msg)
         {
             _totalFail++;
-            TestLogger.LogFailure(testName, msg);
+            TestLogger.LogCaseFailure(testName, msg);
+        }
+
+        /* ปิด HRMI เมื่อจบการทดสอบ และป้องกัน process ค้างหลังมี popup/modal */
+        private void EnsureApplicationExits()
+        {
+            try
+            {
+                using var process = Process.GetProcessById(_mainWindow.Properties.ProcessId.Value);
+                if (process.HasExited) return;
+                process.CloseMainWindow();
+                if (!process.WaitForExit(5000))
+                {
+                    process.Kill(entireProcessTree: true);
+                    process.WaitForExit(3000);
+                }
+            }
+            catch (ArgumentException) { }
+            catch { }
         }
 
         /* Method ตัวช่วยวนเช็คเงื่อนไขจนเป็นจริงหรือหมดเวลา */

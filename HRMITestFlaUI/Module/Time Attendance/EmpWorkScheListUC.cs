@@ -18,42 +18,123 @@ namespace HRMITestFlaUI.Module.Time_Attendance
 {
     public class EmpWorkScheListUC
     {
+        // =========================================================================================
+        // หมวดที่ 1: ข้อมูลการทดสอบ (Test Data)
+        // ขั้นตอนอ้างอิง TestStep.ods ชีท "บันทึกรูปแบบตารางการทำงาน" — วันที่ในไฟล์เป็น พ.ศ. (ลบ 543)
+        // =========================================================================================
+
+        // --- Data Records สำหรับใช้งานในแต่ละเฟส ---
+        private sealed record GroupScheduleItem(
+            string Name,
+            DateTime Start, DateTime End,
+            string WorkType,
+            string PatternCode);
+
+        private sealed record PeriodItem(
+            string Name,
+            DateTime Start, DateTime End);
+
+        private sealed record CopyEmployeeItem(
+            string Name,
+            DateTime Start, DateTime End,
+            string EmployeeCode);
+
+        private sealed record CancelGroupItem(
+            string Name,
+            DateTime Start, DateTime End,
+            string? ShiftFrom, string? ShiftTo,       // null = ข้ามขั้นตอนนี้ (ไม่กรอกช่วงรหัสกะงาน)
+            string OrgFrom, string OrgTo,
+            string EmpGroupFrom, string EmpGroupTo,
+            string[] EmpTypes,
+            string PositionFrom, string PositionTo,
+            string LevelFrom, string LevelTo,
+            string EmpCodeFrom, string EmpCodeTo,
+            bool CancelWorkSchedule,
+            bool CancelWorkHoliday);
+
+        // [TestCase01] กำหนดตารางการทำงานของพนักงานแบบรวม (แถว 7-8)
+        private static readonly GroupScheduleItem[] Step1_SetScheduleCases =
+        {
+            new("TestCase01_SetScheduleForGroup_General",
+                new DateTime(2026, 1, 1), new DateTime(2026, 12, 31),
+                "กำหนดตารางการทำงานแบบทั่วไป",
+                "WSG001"),
+            new("TestCase01_SetScheduleForGroup_Rotation",
+                new DateTime(2026, 2, 1), new DateTime(2026, 3, 31),
+                "กำหนดตารางการทำงานแบบวนกะงาน",
+                "WSG002")
+        };
+
+        // [TestCase01] คัดลอกตารางการทำงานของพนักงาน (radio ในวิซาร์ดแบบรวม, แถว 11)
+        private static readonly PeriodItem[] Step1_CopyShortcutCases =
+        {
+            new("TestCase01_CopyScheduleShortcut",
+                new DateTime(2026, 1, 3), new DateTime(2026, 12, 3))
+        };
+
+        // [TestCase01] กำหนดวันหยุด (แถว 14)
+        private static readonly PeriodItem[] Step1_HolidayCases =
+        {
+            new("TestCase01_SetHoliday",
+                new DateTime(2026, 6, 1), new DateTime(2026, 12, 31))
+        };
+
+        // [TestCase02] Import ตารางการทำงานของพนักงาน (แถว 21)
+        private static readonly PeriodItem[] Step2_ImportCases =
+        {
+            new("TestCase02_Import",
+                new DateTime(2026, 5, 15), new DateTime(2026, 6, 15))
+        };
+
+        // [TestCase03] คัดลอกตารางการทำงานของพนักงาน: เลือกพนักงานในตารางก่อน แล้ว More Action (แถว 32)
+        private static readonly CopyEmployeeItem[] Step3_CopyEmployeeCases =
+        {
+            new("TestCase03_CopyScheduleOfEmployee",
+                new DateTime(2026, 1, 1), new DateTime(2026, 12, 31),
+                "EMP00001")
+        };
+
+        // [TestCase04] ยกเลิกตารางการทำงานของพนักงานแบบรวม (แถว 42-43)
+        // ใช้รหัสหน่วยงานแรกที่มีอยู่ในฐานข้อมูลสำหรับช่วงเริ่มต้น
+        private const string FirstAvailableOrgUnitCode = "ORG003";
+        private static readonly CancelGroupItem[] Step4_CancelGroupCases =
+        {
+            new("TestCase04_CancelScheduleForGroup_1",
+                new DateTime(2026, 9, 1), new DateTime(2026, 12, 31),
+                "NRM-M01", "OT-EVN02",
+                FirstAvailableOrgUnitCode, "ORG005",
+                "EG-001", "EG-004",
+                new[] { IdChkEmpTypeHourly, IdChkEmpTypeContract },
+                "DW001", "POS005",
+                "EL-001", "EL-005",
+                "EMP00001", "EMP00004",
+                true,
+                true),
+            new("TestCase04_CancelScheduleForGroup_2",
+                new DateTime(2026, 8, 3), new DateTime(2026, 9, 3),
+                null, null,                          // TestStep: ข้ามขั้นตอนนี้ไป
+                FirstAvailableOrgUnitCode, "ORG005",
+                "EG-001", "EG-004",
+                new[] { IdChkEmpTypeDaily, IdChkEmpTypeMonthly },
+                "DW001", "POS005",
+                "EL-001", "EL-005",
+                "EMP00001", "EMP00004",
+                false,
+                true)
+        };
+
+        private const string SampleEmployeeCodeForCopyShortcut = "EMP00001"; // พนักงานที่เลือกในเคส CopyScheduleShortcut
 
 
+        // =========================================================================================
+        // หมวดที่ 2: ส่วนที่ขึ้นกับหน้าจอนั้นๆ (Screen-Specific Implementation)
+        // **เมื่อเปลี่ยนไปทำหน้าจออื่น ต้องมาแก้ไขค่าและเมทอดในส่วนนี้ทั้งหมด**
+        // =========================================================================================
 
-        private readonly AutomationElement _mainWindow;
-        private readonly UIA3Automation _automation;
-
-        private int _totalSuccess = 0;
-        private int _totalFail = 0;
-        private string _activeTestName = "TestCase_EmpWorkScheListUC";
-        private int _stepLogIndex;
-
-        // ── Delay Constants ──
-        private const int MenuTransitionDelayMs = 150;
-        private const int PageLoadDelayMs = 300;
-        private const int WizardStepDelayMs = 200;
-        private const int ScrollStepDelayMs = 250;
-        private const int TypingDelayMs = 50;
-        private const int FieldBindRetryTimeoutMs = 15000;
-        private const int FieldBindRetryPollMs = 250;
-
-        private const int WizardButtonRetryTimeoutMs = 10000;
-        private const int WizardStepSettleTimeoutMs = 6000;
-
-        // ★ เพิ่มใหม่: เวลารอ "เผื่อประมวลผล" หลังกดปุ่ม Next/Finish โดยตรง — ก่อนจะไปเช็คอะไร
-        // ต่อ (error dialog / ปุ่มถัดไป ฯลฯ) เลย เพราะแอปต้องใช้เวลาประมวลผลเบื้องหลัง
-        // (สร้าง dataset พนักงาน / คำนวณตารางงาน) ซึ่งตอนทดสอบมือคนเรามีจังหวะหน่วงตามธรรมชาติ
-        // อยู่แล้วจึงไม่เจอปัญหา แต่ automation คลิกเร็วเกินไปจนแซงหน้าประมวลผล ทำให้เจอ
-        // NullReferenceException ที่ GenIDGroupAndGenerateDatetime
-        private const int WizardProcessingDelayMs = 2000;
-
-        // ── Menu Path & Navigation Constants ──
-        private const string TimeAttendanceMenuName = "Time Attendance";
-        private const string EmpWorkScheListMenuRowName = "treeListColumn row 2";
+        // 2.1 Locator & Mappings ประจำหน้าจอ
+        private const string ScreenLogName = "EmpWorkScheListUC";
         private const string EmpWorkScheListMenuLabel = "บันทึกรูปแบบตารางการทำงาน";
 
-        // ── AutomationId ของ Wizard / Controls ──
         private const string MoreActionName = "More Action";
         private const string IdDateStart = "devDateStart";
         private const string IdDateEnd = "devDateEnd";
@@ -75,9 +156,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private const string IdRdgHolidaySche = "devRdgHolidaySche";
 
         private const string IdTxtHolidayTopic = "devtxtHoliday";
-        private const string IdGridWorkConfigList = "devWorkConfigGridList";
         private const string IdBtnEmployee = "devBtnEmployee";
-        private const string IdGridHolidaySche = "devGcHolidaySche";
 
         private static readonly string[] AllHolidayDayCheckboxIds =
         {
@@ -111,7 +190,6 @@ namespace HRMITestFlaUI.Module.Time_Attendance
 
         private const string ConditionsTabName = "กำหนดเงื่อนไข";
         private const string IdChkCancelSchedule = "devChkDelShift";               // ผลที่คาดหวัง: ยกเลิกกะงาน
-        private const string SampleEmployeeCodeForCopyShortcut = "EMP00001"; // เดิมพิมพ์ผิดเป็น EMP0001 (ไม่มีพนักงานรหัสนี้)
 
         // ── ปุ่ม "รีเช็คข้อมูลพนักงาน" ที่อยู่ใต้ตารางแสดงข้อมูลพนักงาน ──
         // ★ เพิ่มใหม่: ใช้แก้ปัญหา NullReferenceException ที่ GenIDGroupAndGenerateDatetime
@@ -121,15 +199,26 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         // ก่อนไป Next เพื่อให้แอป sync ข้อมูลให้เสร็จก่อนเสมอ
         private const string BtnRecheckEmployeeDataName = "รีเช็คข้อมูลพนักงาน";
 
-        //----
-        // * 1. Constructor & Navigation *
-        //----
-        public EmpWorkScheListUC(AutomationElement mainWindow, UIA3Automation automation)
-        {
-            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
-            _automation = automation ?? throw new ArgumentNullException(nameof(automation));
-        }
+        // 2.2 ค่า Timeout / Delay ประจำหน้าจอ
+        private const int PageLoadDelayMs = 300;
+        private const int WizardStepDelayMs = 200;
+        private const int TypingDelayMs = 50;
+        private const int FieldBindRetryTimeoutMs = 15000;
+        private const int FieldBindRetryPollMs = 250;
 
+        private const int WizardButtonRetryTimeoutMs = 10000;
+        private const int WizardStepSettleTimeoutMs = 6000;
+
+        // ★ เพิ่มใหม่: เวลารอ "เผื่อประมวลผล" หลังกดปุ่ม Next/Finish โดยตรง — ก่อนจะไปเช็คอะไร
+        // ต่อ (error dialog / ปุ่มถัดไป ฯลฯ) เลย เพราะแอปต้องใช้เวลาประมวลผลเบื้องหลัง
+        // (สร้าง dataset พนักงาน / คำนวณตารางงาน) ซึ่งตอนทดสอบมือคนเรามีจังหวะหน่วงตามธรรมชาติ
+        // อยู่แล้วจึงไม่เจอปัญหา แต่ automation คลิกเร็วเกินไปจนแซงหน้าประมวลผล ทำให้เจอ
+        // NullReferenceException ที่ GenIDGroupAndGenerateDatetime
+        private const int WizardProcessingDelayMs = 2000;
+
+        /// <summary>
+        /// ขั้นที่ 1: เปิดหน้าจอ บันทึกรูปแบบตารางการทำงาน
+        /// </summary>
         public void NavigateToEmpWorkScheListUC()
         {
             // เปิดหน้าจอด้วยช่องค้นหาเมนู แบบเดียวกับโมดูลก่อนหน้า (ไม่คลิกแถวเมนูตามลำดับ)
@@ -137,83 +226,48 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             Thread.Sleep(PageLoadDelayMs);
         }
 
-        private AutomationElement? FindEmpWorkScheListMenuRow()
-        {
-            return _mainWindow.FindFirstDescendant(cf => cf.ByName(EmpWorkScheListMenuRowName))
-                ?? _mainWindow.FindFirstDescendant(cf => cf.ByName(EmpWorkScheListMenuLabel));
-        }
-
-        //----
-        // * 2. Test Orchestration *
-        //----
+        /// <summary>
+        /// ขั้นที่ 2: รันทุกเคสตาม Test Step (TestCase01-04) แล้วสรุปผลรวม
+        /// </summary>
         public void RunAllValidationTests()
         {
             _totalSuccess = 0;
             _totalFail = 0;
 
-            // เรียงและกำหนดค่าตาม TestStep.ods ชีท "บันทึกรูปแบบตารางการทำงาน" — วันที่ในไฟล์เป็น พ.ศ. (ลบ 543)
-            var scenarios = new (string TestName, Action Step)[]
-            {
-                // ── 1. ทดสอบ NEW กำหนดตารางการทำงานของพนักงานแบบรวม (แถว 7-8) ──
-                ("TestCase01_SetScheduleForGroup_General",
-                    () => SetScheduleForGroup(new DateTime(2026, 1, 1), new DateTime(2026, 12, 31),
-                        "กำหนดตารางการทำงานแบบทั่วไป", "WSG001")),
-                ("TestCase01_SetScheduleForGroup_Rotation",
-                    () => SetScheduleForGroup(new DateTime(2026, 2, 1), new DateTime(2026, 3, 31),
-                        "กำหนดตารางการทำงานแบบวนกะงาน", "WSG002")),
+            int total = Step1_SetScheduleCases.Length + Step1_CopyShortcutCases.Length + Step1_HolidayCases.Length
+                      + Step2_ImportCases.Length + Step3_CopyEmployeeCases.Length + Step4_CancelGroupCases.Length;
+            TestLogger.LogInfo(ScreenLogName, $"เริ่มทดสอบ{EmpWorkScheListMenuLabel} ({total} รายการ)");
 
-                // ── 1. คัดลอกตารางการทำงานของพนักงาน (radio ในวิซาร์ดแบบรวม, แถว 11) ──
-                ("TestCase01_CopyScheduleShortcut",
-                    () => CopyScheduleShortcut(new DateTime(2026, 1, 3), new DateTime(2026, 12, 3))),
+            // ── TestCase01: NEW กำหนดตารางการทำงานแบบรวม / คัดลอก (shortcut) / กำหนดวันหยุด ──
+            foreach (var i in Step1_SetScheduleCases)
+                RunScenarioStep(i.Name, () => SetScheduleForGroup(i.Start, i.End, i.WorkType, i.PatternCode));
+            foreach (var i in Step1_CopyShortcutCases)
+                RunScenarioStep(i.Name, () => CopyScheduleShortcut(i.Start, i.End));
+            foreach (var i in Step1_HolidayCases)
+                RunScenarioStep(i.Name, () => SetHoliday(i.Start, i.End));
 
-                // ── 1. กำหนดวันหยุด (แถว 14) ──
-                ("TestCase01_SetHoliday",
-                    () => SetHoliday(new DateTime(2026, 6, 1), new DateTime(2026, 12, 31))),
+            // ── TestCase02: Import ตารางการทำงานของพนักงาน ──
+            foreach (var i in Step2_ImportCases)
+                RunScenarioStep(i.Name, () => ImportEmployeeWorkSchedule(i.Start, i.End));
 
-                // ── 2. Import ตารางการทำงานของพนักงาน (แถว 21: ชุดเดียว) ──
-                ("TestCase02_Import",
-                    () => ImportEmployeeWorkSchedule(new DateTime(2026, 5, 15), new DateTime(2026, 6, 15))),
+            // ── TestCase03: คัดลอกตารางการทำงานของพนักงาน ──
+            foreach (var i in Step3_CopyEmployeeCases)
+                RunScenarioStep(i.Name, () => CopyScheduleOfEmployee(i.Start, i.End, i.EmployeeCode));
 
-                // ── 3. คัดลอกตารางการทำงานของพนักงาน: เลือก EMP00001 ในตารางก่อน แล้ว More Action (แถว 32) ──
-                ("TestCase03_CopyScheduleOfEmployee",
-                    () => CopyScheduleOfEmployee(new DateTime(2026, 1, 1), new DateTime(2026, 12, 31), "EMP00001")),
+            // ── TestCase04: ยกเลิกตารางการทำงานของพนักงานแบบรวม ──
+            foreach (var i in Step4_CancelGroupCases)
+                RunScenarioStep(i.Name, () => CancelScheduleForGroup(
+                    start: i.Start, end: i.End,
+                    workGroupFrom: i.ShiftFrom, workGroupTo: i.ShiftTo,
+                    orgFrom: i.OrgFrom, orgTo: i.OrgTo,
+                    empGroupFrom: i.EmpGroupFrom, empGroupTo: i.EmpGroupTo,
+                    empTypeChecks: i.EmpTypes,
+                    positionFrom: i.PositionFrom, positionTo: i.PositionTo,
+                    levelFrom: i.LevelFrom, levelTo: i.LevelTo,
+                    empCodeFrom: i.EmpCodeFrom, empCodeTo: i.EmpCodeTo,
+                    cancelWorkSchedule: i.CancelWorkSchedule, cancelWorkHoliday: i.CancelWorkHoliday));
 
-                // ── 4. ยกเลิกตารางการทำงานของพนักงานแบบรวม (แถว 42-43) ──
-                ("TestCase04_CancelScheduleForGroup_1",
-                    () => CancelScheduleForGroup(
-                        start: new DateTime(2026, 9, 1), end: new DateTime(2026, 12, 31),
-                        workGroupFrom: "NRM-M01", workGroupTo: "OT-EVN02",
-                        orgFrom: "001", orgTo: "ORG005",
-                        empGroupFrom: "EG-001", empGroupTo: "EG-004",
-                        empTypeChecks: new[] { IdChkEmpTypeHourly, IdChkEmpTypeContract },
-                        positionFrom: "DW001", positionTo: "POS005",
-                        levelFrom: "EL-001", levelTo: "EL-005",
-                        empCodeFrom: "EMP00001", empCodeTo: "EMP00004",
-                        cancelWorkSchedule: true, cancelWorkHoliday: true)),
-                ("TestCase04_CancelScheduleForGroup_2",
-                    () => CancelScheduleForGroup(
-                        start: new DateTime(2026, 8, 3), end: new DateTime(2026, 9, 3),
-                        workGroupFrom: null, workGroupTo: null, // TestStep: ข้ามขั้นตอนนี้ไป
-                        orgFrom: "001", orgTo: "ORG005",
-                        empGroupFrom: "EG-001", empGroupTo: "EG-004",
-                        empTypeChecks: new[] { IdChkEmpTypeDaily, IdChkEmpTypeMonthly },
-                        positionFrom: "DW001", positionTo: "POS005",
-                        levelFrom: "EL-001", levelTo: "EL-005",
-                        empCodeFrom: "EMP00001", empCodeTo: "EMP00004",
-                        cancelWorkSchedule: false, cancelWorkHoliday: true)),
-            };
-
-            // แสดง Log เริ่มต้นหน้าจอ
-            TestLogger.LogInfo("EmpWorkScheListUC", "เริ่มทดสอบหน้าจอ บันทึกรูปแบบตารางการทำงาน");
-
-            foreach (var (testName, step) in scenarios)
-            {
-                RunScenarioStep(testName, step);
-            }
-
-            // แสดง Log สรุปผลรวมท้ายสุด
-            TestLogger.LogInfo("EmpWorkScheListUC",
-                $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
+            LogTotalSummary();
 
             // ★ เพิ่มใหม่: การันตีว่าแอปถูกปิดจริงหลังรันเทสครบทุกเคส
             // ทำในไฟล์นี้เอง (ไม่แก้ BaseTest.cs เพราะใช้ร่วมกับเพื่อนร่วมทีม) เพื่อป้องกันปัญหา
@@ -222,10 +276,25 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             EnsureApplicationExits();
         }
 
+        /// <summary>
+        /// ขั้นที่ 3: แก้ไขข้อมูล (ยังไม่มี Test Step ใน Excel)
+        /// </summary>
+        public void RunEditTests() { }
+
+        /// <summary>
+        /// ขั้นที่ 4: Validation ตอนแก้ไขข้อมูล (ยังไม่มี Test Step ใน Excel)
+        /// </summary>
+        public void RunEditValidationTests() { }
+
+        /// <summary>
+        /// ขั้นที่ 5: ลบข้อมูล (ยังไม่มี Test Step ใน Excel)
+        /// </summary>
+        public void RunDeleteTests() { }
+
+        // --- Custom Mapping Logic ประจำหน้าจอนี้ ---
+
         private void RunScenarioStep(string testName, Action step)
         {
-            _activeTestName = testName;
-            _stepLogIndex = 0;
             try
             {
                 step();
@@ -241,8 +310,8 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             }
         }
 
-        private void LogStep(string message) =>
-            TestLogger.LogSuccess($"{_activeTestName}_Step{++_stepLogIndex:00}", message);
+        // Keep output concise: each scenario logs one final PASS or FAIL.
+        private void LogStep(string message) { }
 
         /* ปิดวิซาร์ดที่ค้างหลังจบเคส — กดเฉพาะปุ่มของหน้าต่าง HRMI ที่เป็นวิซาร์ดจริง
            (เดิมหาปุ่มชื่อ "Cancel" ที่ไหนก็ได้บน desktop แล้วกด เคยไปโดนปุ่มที่ไม่ใช่วิซาร์ด ทำให้ HRMI ค้างทั้งเคสถัดไป) */
@@ -272,84 +341,6 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             }
         }
 
-        /* หา control ตาม AutomationId: ค้นในวิซาร์ด/Pop-up ของ HRMI ก่อน (เร็ว) แล้วค่อยค้นใน context (หน้าหลักทั้งหน้า ช้า) */
-        private AutomationElement? FindById(AutomationElement context, string automationId) =>
-            (ReferenceEquals(context, _mainWindow) ? FindFirstInHrmi(cf => cf.ByAutomationId(automationId)) : null)
-            ?? context.FindFirstDescendant(cf => cf.ByAutomationId(automationId));
-
-        /* หาปุ่มนำทางของวิซาร์ด (Next/Finish): ค้นในหน้าต่างวิซาร์ดก่อน (เล็ก เร็ว) แล้วค่อยค้นทั้งหน้าหลัก
-           — หน้าหลักมีตารางพนักงานทั้งหน้า ค้นทีละครั้งเป็นวินาที และเดิมค้นหลายรอบต่อขั้น ทำให้ทั้งเทสช้ามาก */
-        private AutomationElement? FindNavButton(string name) =>
-            FindFirstInHrmi(cf => cf.ByName(name).And(cf.ByControlType(ControlType.Button)))
-            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName(name).And(cf.ByControlType(ControlType.Button)));
-
-        /* หา element ในหน้าต่างของ HRMI เท่านั้น (แทนการค้นทั้ง desktop ซึ่งช้าและอาจเจอปุ่มชื่อเดียวกันของโปรแกรมอื่น) */
-        private AutomationElement? FindFirstInHrmi(Func<FlaUI.Core.Conditions.ConditionFactory, FlaUI.Core.Conditions.ConditionBase> condition)
-        {
-            foreach (var w in FindHrmiWindows())
-            {
-                try { var el = w.FindFirstDescendant(condition); if (el != null) return el; } catch { }
-            }
-            return null;
-        }
-
-        /* หน้าต่าง popup ของ HRMI (วิซาร์ด / Pop-up เลือกข้อมูล / กล่องข้อความ / หน้าต่างประมวลผล / dropdown)
-           ไม่รวมหน้าหลัก และไม่รวมหน้าจอที่เปิดเป็นแท็บใน HRMI (MDI เช่น "บันทึกรูปแบบตารางการทำงาน")
-           — หน้าจอแท็บมีตารางเหมือน Pop-up ถ้านับรวม เทสจะคิดว่า Pop-up ยังเปิดอยู่ตลอด */
-        private IEnumerable<AutomationElement> FindHrmiWindows()
-        {
-            int pid = _mainWindow.Properties.ProcessId.ValueOrDefault;
-            var mainHandle = _mainWindow.Properties.NativeWindowHandle.ValueOrDefault;
-
-            static bool IsModal(AutomationElement w)
-            {
-                try { return w.Patterns.Window.IsSupported && w.Patterns.Window.Pattern.IsModal.ValueOrDefault; }
-                catch { return false; }
-            }
-            // หน้าจอแท็บ (MDI) มี AutomationId เป็นตัวเลข ("1", "2") ส่วนวิซาร์ด/Pop-up ไม่มี — ใช้แยกแบบไม่ต้องค้นข้างใน
-            // (เดิมค้นปุ่ม Next ในทุกหน้าต่าง รวมหน้าจอแท็บที่มีตารางพนักงานทั้งหน้า ช้ามากและทำทุกครั้งที่หาปุ่ม)
-            static bool IsPopupLike(AutomationElement w)
-            {
-                try { return IsModal(w) || string.IsNullOrEmpty(w.AutomationId) || !w.AutomationId.All(char.IsDigit); }
-                catch { return false; }
-            }
-
-            // หน้าต่างระดับบนของ HRMI (popup / dropdown ไม่ใช่ modal แต่อยู่ระดับบน) + หน้าต่าง modal ที่อยู่ใต้หน้าหลัก
-            return _automation.GetDesktop().FindAllChildren(cf => cf.ByProcessId(pid))
-                .Concat(_mainWindow.FindAllChildren(cf => cf.ByControlType(ControlType.Window)).Where(IsPopupLike)
-                    .SelectMany(w => new[] { w }.Concat(SafeChildWindows(w)))) // Pop-up อาจซ้อนอยู่ใต้วิซาร์ด (ลงไปอีกชั้นเดียว)
-                .Where(w => { try { return w.Properties.NativeWindowHandle.ValueOrDefault != mainHandle; } catch { return false; } })
-                .ToList();
-        }
-
-        private static IEnumerable<AutomationElement> SafeChildWindows(AutomationElement w)
-        {
-            try { return w.FindAllChildren(cf => cf.ByControlType(ControlType.Window)); }
-            catch { return Array.Empty<AutomationElement>(); }
-        }
-
-        /* หลังกด Finish HRMI ประมวลผลต่อ (มีหน้าต่างประมวลผล) — รอให้เสร็จก่อนเริ่มเคสถัดไป ห้ามไปกดปุ่มใดๆ ระหว่างนี้ */
-        private void WaitForHrmiIdle(int timeoutMs = 180000)
-        {
-            var sw = Stopwatch.StartNew();
-            while (sw.ElapsedMilliseconds < timeoutMs)
-            {
-                try
-                {
-                    bool busy = FindHrmiWindows().Any(w =>
-                        w.FindFirstDescendant(cf => cf.ByName(NextButtonName).Or(cf.ByName(FinishButtonName))) == null
-                        && w.FindFirstDescendant(cf => cf.ByControlType(ControlType.ProgressBar)) != null);
-                    if (!busy) return;
-                }
-                catch { }
-                Thread.Sleep(300);
-            }
-        }
-
-        public void RunEditTests() { }
-        public void RunEditValidationTests() { }
-        public void RunDeleteTests() { }
-
         /// <summary>
         /// TestCase01: กำหนดตารางการทำงานของพนักงานแบบรวม (ทั่วไป / วนกะงาน)
         /// ตาม Test Step แถว 7-8: More Action → กรอกวันที่ → Radio → รูปแบบตารางงาน (Select)
@@ -358,9 +349,6 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         /// / FillSpinControl ออก เนื่องจากไม่ปรากฏใน Test Step ของเคสนี้
         /// (ถ้าหน้าจอจริงบังคับให้กรอกฟิลด์เหล่านี้ก่อนกด Next ได้ ให้แจ้งเพื่อเพิ่มกลับเข้ามา)
         /// </summary>
-        //----
-        // * 3. Test Steps *
-        //----
         private void SetScheduleForGroup(DateTime start, DateTime end, string workType, string patternCode)
         {
             ClickMoreAction();
@@ -639,7 +627,6 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private void PickRangeValue(string rangeAutomationId, string buttonEditId, string code, bool useLastRowIfMissing)
         {
             string label = $"{rangeAutomationId}.{buttonEditId}";
-            TestLogger.LogInfo(_activeTestName, $"กำลังเปิดตัวเลือก {label} เพื่อเลือกรหัส '{code}'");
             var range = RetryFind(() => FindById(_mainWindow, rangeAutomationId), timeoutMs: 5000, pollMs: 250)
                 ?? throw new Exception($"หาช่วงข้อมูล '{rangeAutomationId}' ไม่เจอ");
             var container = range.FindFirstDescendant(cf => cf.ByAutomationId(buttonEditId))
@@ -687,12 +674,10 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             var row = FindRowByScanningVisibleElements(dialog, code);
             if (row == null)
             {
-                // รหัสตาม TestStep ไม่มีในข้อมูล (เช่น "001" ในหน่วยงาน) → ใช้แถวแรก (ช่อง "จาก") / แถวสุดท้าย (ช่อง "ถึง")
-                // เพื่อให้ช่วงครอบคลุมข้อมูลทั้งหมด และบันทึกไว้ใน log ให้รู้ว่าแทนค่า
+                // ถ้าไม่พบรหัสในข้อมูล ให้ใช้แถวแรก (ช่อง "จาก") / แถวสุดท้าย (ช่อง "ถึง")
+                // เพื่อให้ช่วงครอบคลุมข้อมูลทั้งหมด
                 row = FindEdgeRow(dialog, useLastRowIfMissing);
                 if (row == null) throw new Exception($"ไม่พบรหัส '{code}' และ Pop-up ของ {label} ไม่มีข้อมูล");
-                string used = ""; try { used = row.Patterns.Value.Pattern.Value.Value ?? ""; } catch { }
-                TestLogger.LogInfo("EmpWorkScheListUC", $"ไม่พบรหัส '{code}' ใน {label} — ใช้ '{used}' ({(useLastRowIfMissing ? "แถวสุดท้าย" : "แถวแรก")}) แทน");
             }
             SelectRowAndConfirm(dialog, row, $"Pop-up {label}");
             LogStep($"เลือก '{code}' ใน {label} แล้ว");
@@ -719,40 +704,6 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             string firstCol = cells[0].m.Groups[1].Value;
             var col = cells.Where(x => x.m.Groups[1].Value == firstCol).OrderBy(x => int.Parse(x.m.Groups[2].Value)).ToList();
             return (last ? col.Last() : col.First()).c;
-        }
-
-        private void FillComboValue(string automationId, string value, string? parentAutomationId = null)
-        {
-            RetryAction<object?>(() =>
-            {
-                AutomationElement scope = _mainWindow;
-                if (parentAutomationId != null)
-                    scope = FindById(_mainWindow, parentAutomationId)
-                        ?? throw new Exception($"หาช่วงข้อมูล '{parentAutomationId}' ไม่เจอ");
-
-                var container = scope.FindFirstDescendant(cf => cf.ByAutomationId(automationId))
-                    ?? throw new Exception($"หาช่อง '{automationId}'{(parentAutomationId != null ? $" ใน '{parentAutomationId}'" : "")} ไม่เจอ");
-
-                WaitUntilEnabled(container, timeoutMs: 2000);
-                var editBox = container.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit)) ?? container;
-
-                ClickElement(editBox);
-                Thread.Sleep(100);
-
-                Keyboard.Press(VirtualKeyShort.CONTROL);
-                Keyboard.Press(VirtualKeyShort.KEY_A);
-                Keyboard.Release(VirtualKeyShort.KEY_A);
-                Keyboard.Release(VirtualKeyShort.CONTROL);
-                Thread.Sleep(50);
-
-                Keyboard.Type(value);
-                Thread.Sleep(TypingDelayMs);
-
-                Keyboard.Press(VirtualKeyShort.TAB);
-                Keyboard.Release(VirtualKeyShort.TAB);
-                return null;
-            }, timeoutMs: 5000, pollMs: 300);
-            Thread.Sleep(WizardStepDelayMs);
         }
 
         /// <summary>
@@ -874,9 +825,101 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             if (Read() is bool now && now != shouldCheck) Keyboard.Type(VirtualKeyShort.SPACE);
         }
 
-        //----
-        // * 4. Helper Methods — Element Interaction *
-        //----
+
+        // =========================================================================================
+        // หมวดที่ 3: ส่วนการทำงานกลางที่ตายตัว (Common / Reusable Helpers)
+        // **ใช้งานร่วมกันได้ทุกหน้าจอ ไม่ต้องแก้ไขคำสั่งเมื่อเปลี่ยนหน้า**
+        // =========================================================================================
+
+        private readonly AutomationElement _mainWindow;
+        private readonly UIA3Automation _automation;
+
+        private int _totalSuccess = 0;
+        private int _totalFail = 0;
+
+        public EmpWorkScheListUC(AutomationElement mainWindow, UIA3Automation automation)
+        {
+            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
+            _automation = automation ?? throw new ArgumentNullException(nameof(automation));
+        }
+
+        // ── HRMI Window Helpers ──
+
+        /* หา control ตาม AutomationId: ค้นในวิซาร์ด/Pop-up ของ HRMI ก่อน (เร็ว) แล้วค่อยค้นใน context (หน้าหลักทั้งหน้า ช้า) */
+        private AutomationElement? FindById(AutomationElement context, string automationId) =>
+            (ReferenceEquals(context, _mainWindow) ? FindFirstInHrmi(cf => cf.ByAutomationId(automationId)) : null)
+            ?? context.FindFirstDescendant(cf => cf.ByAutomationId(automationId));
+
+        /* หาปุ่มนำทางของวิซาร์ด (Next/Finish): ค้นในหน้าต่างวิซาร์ดก่อน (เล็ก เร็ว) แล้วค่อยค้นทั้งหน้าหลัก
+           — หน้าหลักมีตารางพนักงานทั้งหน้า ค้นทีละครั้งเป็นวินาที และเดิมค้นหลายรอบต่อขั้น ทำให้ทั้งเทสช้ามาก */
+        private AutomationElement? FindNavButton(string name) =>
+            FindFirstInHrmi(cf => cf.ByName(name).And(cf.ByControlType(ControlType.Button)))
+            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName(name).And(cf.ByControlType(ControlType.Button)));
+
+        /* หา element ในหน้าต่างของ HRMI เท่านั้น (แทนการค้นทั้ง desktop ซึ่งช้าและอาจเจอปุ่มชื่อเดียวกันของโปรแกรมอื่น) */
+        private AutomationElement? FindFirstInHrmi(Func<FlaUI.Core.Conditions.ConditionFactory, FlaUI.Core.Conditions.ConditionBase> condition)
+        {
+            foreach (var w in FindHrmiWindows())
+            {
+                try { var el = w.FindFirstDescendant(condition); if (el != null) return el; } catch { }
+            }
+            return null;
+        }
+
+        /* หน้าต่าง popup ของ HRMI (วิซาร์ด / Pop-up เลือกข้อมูล / กล่องข้อความ / หน้าต่างประมวลผล / dropdown)
+           ไม่รวมหน้าหลัก และไม่รวมหน้าจอที่เปิดเป็นแท็บใน HRMI (MDI เช่น "บันทึกรูปแบบตารางการทำงาน")
+           — หน้าจอแท็บมีตารางเหมือน Pop-up ถ้านับรวม เทสจะคิดว่า Pop-up ยังเปิดอยู่ตลอด */
+        private IEnumerable<AutomationElement> FindHrmiWindows()
+        {
+            int pid = _mainWindow.Properties.ProcessId.ValueOrDefault;
+            var mainHandle = _mainWindow.Properties.NativeWindowHandle.ValueOrDefault;
+
+            static bool IsModal(AutomationElement w)
+            {
+                try { return w.Patterns.Window.IsSupported && w.Patterns.Window.Pattern.IsModal.ValueOrDefault; }
+                catch { return false; }
+            }
+            // หน้าจอแท็บ (MDI) มี AutomationId เป็นตัวเลข ("1", "2") ส่วนวิซาร์ด/Pop-up ไม่มี — ใช้แยกแบบไม่ต้องค้นข้างใน
+            // (เดิมค้นปุ่ม Next ในทุกหน้าต่าง รวมหน้าจอแท็บที่มีตารางพนักงานทั้งหน้า ช้ามากและทำทุกครั้งที่หาปุ่ม)
+            static bool IsPopupLike(AutomationElement w)
+            {
+                try { return IsModal(w) || string.IsNullOrEmpty(w.AutomationId) || !w.AutomationId.All(char.IsDigit); }
+                catch { return false; }
+            }
+
+            // หน้าต่างระดับบนของ HRMI (popup / dropdown ไม่ใช่ modal แต่อยู่ระดับบน) + หน้าต่าง modal ที่อยู่ใต้หน้าหลัก
+            return _automation.GetDesktop().FindAllChildren(cf => cf.ByProcessId(pid))
+                .Concat(_mainWindow.FindAllChildren(cf => cf.ByControlType(ControlType.Window)).Where(IsPopupLike)
+                    .SelectMany(w => new[] { w }.Concat(SafeChildWindows(w)))) // Pop-up อาจซ้อนอยู่ใต้วิซาร์ด (ลงไปอีกชั้นเดียว)
+                .Where(w => { try { return w.Properties.NativeWindowHandle.ValueOrDefault != mainHandle; } catch { return false; } })
+                .ToList();
+        }
+
+        private static IEnumerable<AutomationElement> SafeChildWindows(AutomationElement w)
+        {
+            try { return w.FindAllChildren(cf => cf.ByControlType(ControlType.Window)); }
+            catch { return Array.Empty<AutomationElement>(); }
+        }
+
+        /* หลังกด Finish HRMI ประมวลผลต่อ (มีหน้าต่างประมวลผล) — รอให้เสร็จก่อนเริ่มเคสถัดไป ห้ามไปกดปุ่มใดๆ ระหว่างนี้ */
+        private void WaitForHrmiIdle(int timeoutMs = 180000)
+        {
+            var sw = Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < timeoutMs)
+            {
+                try
+                {
+                    bool busy = FindHrmiWindows().Any(w =>
+                        w.FindFirstDescendant(cf => cf.ByName(NextButtonName).Or(cf.ByName(FinishButtonName))) == null
+                        && w.FindFirstDescendant(cf => cf.ByControlType(ControlType.ProgressBar)) != null);
+                    if (!busy) return;
+                }
+                catch { }
+                Thread.Sleep(300);
+            }
+        }
+
+        // ── Helper Methods — Element Interaction ──
         private void ClickMoreAction()
         {
             RetryAction<object?>(() =>
@@ -1123,9 +1166,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             try { element.Click(); } catch { }
         }
 
-        //----
-        // * 5. Diagnostic Helpers *
-        //----
+        // ── Diagnostic Helpers ──
         // เปิด/ปิด diagnostic logging ตรงนี้ — เปิดไว้ก่อนเพื่อ debug ปัญหา Next/แสดงข้อมูลพนักงาน กดไม่ติด
         private const bool DiagnosticLoggingEnabled = false; // ปิดไว้ให้ output เหมือนโมดูลอื่น (มีแค่ PASS/FAIL/INFO) — เปิดเฉพาะตอนไล่ปัญหา
 
@@ -1472,9 +1513,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             DiagLog($"SelectRowAndConfirm[{dialogLabel}] หลังคลิกพิกัดสำรอง -> dialog closed={closedAfterCoordinateClick}");
         }
 
-        //----
-        // * 6. Lookup Popup Dialogs (Employee / Work Schedule Pattern / Holiday Calendar) *
-        //----
+        // ── Lookup Popup Dialogs (Employee / Work Schedule Pattern / Holiday Calendar) ──
         private void SelectEmployeeByCode(string employeeCode) =>
             SelectFromPicker(IdBtnEmployee, employeeCode, "Dialog เลือกพนักงาน");
 
@@ -1940,9 +1979,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             return false;
         }
 
-        //----
-        // * 7. Generic Retry / Wait Helpers *
-        //----
+        // ── Generic Retry / Wait Helpers ──
         private T? RetryFind<T>(Func<T?> finder, int timeoutMs = 6000, int pollMs = 300) where T : class
         {
             var sw = Stopwatch.StartNew();
@@ -2059,19 +2096,17 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             }, timeoutMs: FieldBindRetryTimeoutMs, pollMs: FieldBindRetryPollMs);
         }
 
-        //----
-        // * 8. Logging Counters *
-        //----
+        // ── Logging Counters ──
         private void LogSuccessCounted(string testName, string message)
         {
             _totalSuccess++;
-            TestLogger.LogSuccess(testName, message);
+            TestLogger.LogCaseSuccess(testName, message);
         }
 
         private void LogFailureCounted(string testName, string message)
         {
             _totalFail++;
-            TestLogger.LogFailure(testName, message);
+            TestLogger.LogCaseFailure(testName, message);
         }
 
         // ══════════════════════════════════════════════════════════════════
@@ -2230,5 +2265,9 @@ namespace HRMITestFlaUI.Module.Time_Attendance
                 DiagLog($"TryCloseMainWindowViaWinApi error: {DescribeException(ex)}");
             }
         }
+
+        /* แสดง Log สรุปผลรวมท้ายสุด */
+        private void LogTotalSummary() =>
+            TestLogger.LogInfo(ScreenLogName, $"สรุปผลการทดสอบทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
     }
 }

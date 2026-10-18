@@ -14,6 +14,10 @@ namespace HRMITestFlaUI.Base
     [TestClass]
     public class TimeAttendanceModuleTests : BaseTest
     {
+        // =========================================================================================
+        // หมวดที่ 1: Automation IDs และ Page Objects ของโมดูล
+        // =========================================================================================
+
         // ── Automation IDs ของระบบจัดการแท็บหน้าจอ ──
         private const string IdBtnPageList = "devBtnPageList";
         private const string IdChkPageList = "devChkPageList";
@@ -26,9 +30,14 @@ namespace HRMITestFlaUI.Base
         private static FixTimeManualWinUC fixTimeManualWinUC = null!;
         private static FrmTimeRecordWiz frmTimeRecordWiz = null!;
         private static FrmPPprocessTreeWinUC frmPPprocessTreeWinUC = null!;
+        private static FrmPPprocessWinUC frmPPprocessWinUC = null!;
 
         private const int TotalScreensInTimeAttendance = 6;
         private const int BetweenStepDelayMs = 2000;
+
+        // =========================================================================================
+        // หมวดที่ 2: เตรียมและปิดชุดทดสอบ
+        // =========================================================================================
 
         [ClassInitialize]
         public static void SuiteSetUp(TestContext context)
@@ -38,7 +47,9 @@ namespace HRMITestFlaUI.Base
             try
             {
                 // เปิดโปรแกรม + Login (ช่วง 0% - 10%)
-                ClassSetUpWithLogin("admin", "");
+                // Respect User_Login and Password from test_config.txt so environments that
+                // no longer use the default blank admin password can still sign in.
+                ClassSetUpWithLogin();
 
                 // ผูก Page Objects ทั้ง 6 หน้าจอ (EmpWorkScheListUC เป็นลำดับแรก)
                 empWorkScheListUC = new EmpWorkScheListUC(mainWindow, automation);
@@ -46,6 +57,7 @@ namespace HRMITestFlaUI.Base
                 frmTimeRecordWiz = new FrmTimeRecordWiz(mainWindow, automation);
                 fixTimeManualWinUC = new FixTimeManualWinUC(mainWindow, automation);
                 frmPPprocessTreeWinUC = new FrmPPprocessTreeWinUC(mainWindow, automation);
+                frmPPprocessWinUC = new FrmPPprocessWinUC(mainWindow, automation);
             }
             catch (Exception ex)
             {
@@ -56,9 +68,10 @@ namespace HRMITestFlaUI.Base
         [ClassCleanup]
         public static void SuiteTearDown() => ClassTearDown();
 
-        // -------------------------------------------------------------
-        // เรียงลำดับ 6 หน้าจอตามตาราง
-        // -------------------------------------------------------------
+        // =========================================================================================
+        // หมวดที่ 3: Test Cases เรียงตาม TestStep
+        // =========================================================================================
+
         [TestMethod]
         public void Test01_EmpWorkScheListUC()
             => RunPage(1, "EmpWorkScheList", "บันทึกรูปแบบตารางการทำงาน",
@@ -70,23 +83,29 @@ namespace HRMITestFlaUI.Base
                 frmImportTime.NavigateToImportTimeAttendanceDataUC, frmImportTime.RunAllValidationTests);
 
         [TestMethod]
-        public void Test03_FrmTimeRecordWiz()
-            => RunPage(3, "FrmTimeRecordWiz", "ประมวณผลเวลาการทำงาน",
-                frmTimeRecordWiz.NavigateToTimeRecordWiz, frmTimeRecordWiz.RunAllValidationTests);
-
-        [TestMethod]
-        public void Test04_FixTimeManualWinUC()
-            => RunPage(4, "FixTimeManual", "บันทึกแก้ไข/ปรับปรุงเวลา (Manual)",
+        public void Test03_FixTimeManualWinUC()
+            => RunPage(3, "FixTimeManual", "บันทึกแก้ไข/ปรับปรุงเวลา (Manual)",
                 fixTimeManualWinUC.NavigateToFixTimeManualWinUC, fixTimeManualWinUC.RunAllValidationTests);
 
         [TestMethod]
-        public void Test05_FrmPPprocessTreeWinUC()
-            => RunPage(5, "PPprocessTreeWin", "ประมวลผลจากระบบเวลาเข้าสู่ระบบเงินเดือน (แบบแจกแจง)",
+        public void Test04_FrmTimeRecordWiz()
+            => RunPage(4, "FrmTimeRecordWiz", "ประมวณผลเวลาการทำงาน",
+                frmTimeRecordWiz.NavigateToTimeRecordWiz, frmTimeRecordWiz.RunAllValidationTests);
+
+        [TestMethod]
+        public void Test05_FrmPPprocessWinUC()
+            => RunPage(5, "PPprocessWin", "ประมวลผลจากระบบเวลาเข้าสู่ระบบเงินเดือน",
+                frmPPprocessWinUC.NavigateToPPprocessWinUC, frmPPprocessWinUC.RunAllValidationTests);
+
+        [TestMethod]
+        public void Test06_FrmPPprocessTreeWinUC()
+            => RunPage(6, "PPprocessTreeWin", "ประมวลผลจากระบบเวลาเข้าสู่ระบบเงินเดือน (แบบแจกแจง)",
                 frmPPprocessTreeWinUC.NavigateToPPprocessTreeWinUC, frmPPprocessTreeWinUC.RunAllValidationTests);
 
-        // -------------------------------------------------------------
-        // Engine กลางสำหรับรันขั้นตอนมาตรฐานของแต่ละหน้า
-        // -------------------------------------------------------------
+        // =========================================================================================
+        // หมวดที่ 4: Engine กลางและ Helpers ของชุดทดสอบ
+        // =========================================================================================
+
         private static void RunPage(
             int screenIndex,
             string logContext,

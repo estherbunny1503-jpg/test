@@ -385,7 +385,7 @@ namespace HRMITestFlaUI.Pages.ApproveCenter
         private void FillAddValidationAndAssert(AutomationElement tab, Window form, ValidationItem tc)
         {
             FillFormData(form, tab, tc.Code, tc.NameTh, tc.Menu, tc.EmpCode, tc.Email);
-            form.FindFirstDescendant(cf => cf.ByName(tc.SaveBtn))?.Click();
+            (Retry(() => form.FindFirstDescendant(cf => cf.ByName(tc.SaveBtn)), 3000) ?? throw new Exception($"ไม่พบปุ่ม {tc.SaveBtn}")).Click();
             AssertTaskResult(form, tc.ExpectedErrors, tc.TestCaseId);
         }
 
@@ -394,7 +394,7 @@ namespace HRMITestFlaUI.Pages.ApproveCenter
         {
             SetText(tab, CodeFieldId, code);
             SetText(tab, NameThFieldId, name);
-            form.FindFirstDescendant(cf => cf.ByName(saveBtn))?.Click();
+            (Retry(() => form.FindFirstDescendant(cf => cf.ByName(saveBtn)), 3000) ?? throw new Exception($"ไม่พบปุ่ม {saveBtn}")).Click();
             AssertTaskResult(form, msgs, testName);
         }
 
@@ -452,11 +452,29 @@ namespace HRMITestFlaUI.Pages.ApproveCenter
         // ---- ผู้อนุมัติ (ปุ่ม ... ในเซลล์ รหัสผู้อนุมัติ) ----
         private void SelectApprover(Window form, int row, string empCode)
         {
-            ClickGridCell(form, row, ColApproverCode);                 // เข้า edit mode ให้ปุ่ม 'Editing control' โผล่
+            var cell = GetGridCell(form, row, ColApproverCode);
+            cell.Click();                                              // เข้า edit mode ให้ปุ่ม ... โผล่ในเซลล์
+            System.Threading.Thread.Sleep(300);
             var grid = GetGrid(form);
-            var btn = Retry(() => grid.FindFirstDescendant(cf => cf.ByName("Editing control")), 2000)
-                      ?? throw new Exception("ไม่พบปุ่ม ... (Editing control) ในช่อง รหัสผู้อนุมัติ");
-            btn.Click();
+            var cellRect = cell.BoundingRectangle;
+
+            // ปุ่ม ... อยู่ทางขวาของเซลล์ที่กำลังแก้ (ชื่ออาจไม่ใช่ 'Editing control') → หาจากตำแหน่ง
+            var btn = Retry(() => grid.FindAllDescendants(cf => cf.ByControlType(ControlType.Button))
+                .Where(b =>
+                {
+                    try
+                    {
+                        var r = b.BoundingRectangle;
+                        if (r.IsEmpty) return false;
+                        int cy = r.Top + r.Height / 2;
+                        return cy >= cellRect.Top && cy <= cellRect.Bottom && r.Left >= cellRect.Left && r.Right <= cellRect.Right + 4;
+                    }
+                    catch { return false; }
+                })
+                .OrderByDescending(b => b.BoundingRectangle.Left).FirstOrDefault(), 2000);
+
+            if (btn != null) btn.Click();
+            else Mouse.Click(new Point(cellRect.Right - 10, cellRect.Top + cellRect.Height / 2));   // คลิกที่ตำแหน่งปุ่ม ... ขอบขวาเซลล์
             PickFromLookup(form, empCode);
         }
 
@@ -466,20 +484,90 @@ namespace HRMITestFlaUI.Pages.ApproveCenter
             long formHandle = form.Properties.NativeWindowHandle.ValueOrDefault;
             var dlg = Retry(() => form.ModalWindows.FirstOrDefault()
                                   ?? _mainWindow.AsWindow()?.ModalWindows
-                                       .FirstOrDefault(w => w.Properties.NativeWindowHandle.ValueOrDefault != formHandle), 4000)
+                                       .FirstOrDefault(w => w.Properties.NativeWindowHandle.ValueOrDefault != formHandle)
+                                  ?? FindLookupByButtons(formHandle), 8000)
                       ?? throw new Exception("ไม่พบหน้าต่างเลือกข้อมูล");
 
-            var item = Retry(() => dlg.FindFirstDescendant(cf => cf.ByName(text)), 4000)
-                       ?? throw new Exception($"ไม่พบรายการ '{text}' ในหน้าต่างเลือกข้อมูล");
-            item.DoubleClick();
-
-            // ถ้าดับเบิลคลิกแล้วหน้าต่างยังไม่ปิด ให้กดปุ่มยืนยัน
-            if (!WaitForClosed(() => dlg, 1500))
+            // ข้อความของเซลล์อยู่ใน Value (Name เป็นชื่อโครงสร้างเช่น "ชื่อเมนู row 3") จึงเช็คทั้งสอง และต้องตรงทั้งข้อความ
+            // (กัน "บันทึกขออนุมัติลา" ไปตรงกับ "บันทึกขออนุมัติลาแบบกลุ่ม")
+            AutomationElement? FindItem() => dlg.FindAllDescendants().FirstOrDefault(e =>
             {
-                var ok = dlg.FindFirstDescendant(cf => cf.ByName("OK")) ?? dlg.FindFirstDescendant(cf => cf.ByName("Select"));
-                ok?.Click();
+                try
+                {
+                    if (e.BoundingRectangle.IsEmpty) return false;
+                    if (string.Equals(e.Name?.Trim(), text, StringComparison.OrdinalIgnoreCase)) return true;
+                    var v = e.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault;
+                    return string.Equals(v?.Trim(), text, StringComparison.OrdinalIgnoreCase);
+                }
+                catch { return false; }
+            });
+
+            var item = Retry(FindItem, 3000);
+            if (item == null)
+            {
+                // รายการอาจอยู่นอกจอ (ตารางเลื่อน) → พิมพ์ค้นในช่อง Look for แล้วกด Find
+                try
+                {
+                    var lookFor = dlg.FindAllDescendants(cf => cf.ByControlType(ControlType.Edit))
+                        .Where(e => !e.BoundingRectangle.IsEmpty).OrderByDescending(e => e.BoundingRectangle.Width).FirstOrDefault();
+                    if (lookFor != null && lookFor.Patterns.Value.IsSupported)
+                    {
+                        lookFor.Patterns.Value.Pattern.SetValue(text);
+                        dlg.FindFirstDescendant(cf => cf.ByName("Find"))?.Click();
+                    }
+                }
+                catch { }
+                item = Retry(FindItem, 4000);
+            }
+            if (item == null)
+            {
+                // ต้องปิด dialog ที่ค้างเสมอ ไม่งั้นเคสถัดไปจะพิมพ์ข้อมูลลงใน dialog นี้
+                try { (dlg.FindFirstDescendant(cf => cf.ByName("Cancel")) ?? dlg.FindFirstDescendant(cf => cf.ByName("ยกเลิก")))?.Click(); } catch { }
+                WaitForClosed(() => dlg, 2000);
+                throw new Exception($"ไม่พบรายการ '{text}' ในหน้าต่างเลือกข้อมูล");
+            }
+            // คลิกเลือกแถวที่ต้องการก่อน แล้วกด Select (ห้ามกด Select ทันทีโดยไม่เลือก เพราะจะได้แถวแรกที่ไฮไลต์อยู่)
+            item.Click();
+            System.Threading.Thread.Sleep(300);
+            var select = dlg.FindFirstDescendant(cf => cf.ByControlType(ControlType.Button).And(cf.ByName("Select").Or(cf.ByName("เลือก"))))
+                         ?? dlg.FindFirstDescendant(cf => cf.ByName("OK"));
+            if (select != null) select.Click(); else item.DoubleClick();
+
+            // ถ้ากด Select แล้วหน้าต่างยังไม่ปิด ลองดับเบิลคลิกรายการเดิมอีกครั้ง
+            if (!WaitForClosed(() => dlg, 2000))
+            {
+                try { item.DoubleClick(); } catch { }
                 WaitForClosed(() => dlg);
             }
+        }
+
+        /// <summary>หา dialog เลือกข้อมูลที่ไม่ได้เป็น modal: หน้าต่างของโปรแกรมที่มีปุ่ม Select และ Cancel (ไม่ใช่ฟอร์มหลักของหน้าจอ)</summary>
+        private Window? FindLookupByButtons(long formHandle)
+        {
+            var windows = new List<AutomationElement>();
+            try
+            {
+                int pid = _mainWindow.Properties.ProcessId.ValueOrDefault;
+                windows.AddRange(_automation.GetDesktop().FindAllChildren(cf => cf.ByProcessId(pid)));
+            }
+            catch { }
+            try { windows.AddRange(_mainWindow.FindAllDescendants(cf => cf.ByControlType(ControlType.Window))); } catch { }
+
+            foreach (var w in windows.Distinct())
+            {
+                try
+                {
+                    if (w.Properties.NativeWindowHandle.ValueOrDefault == formHandle) continue;
+                    if (w.BoundingRectangle.IsEmpty) continue;
+                    if (w.FindFirstDescendant(cf => cf.ByAutomationId(CodeFieldId)) != null) continue;   // ฟอร์มหน้าจอเอง
+                    var buttons = w.FindAllDescendants(cf => cf.ByControlType(ControlType.Button));
+                    bool hasSelect = buttons.Any(b => b.Name == "Select" || b.Name == "เลือก");
+                    bool hasCancel = buttons.Any(b => b.Name == "Cancel" || b.Name == "ยกเลิก");
+                    if (hasSelect && hasCancel) return w.AsWindow();
+                }
+                catch { }
+            }
+            return null;
         }
 
         // ---- Grid ผู้อนุมัติ ----
@@ -490,14 +578,31 @@ namespace HRMITestFlaUI.Pages.ApproveCenter
         private AutomationElement GetGridCell(Window form, int row, int col)
         {
             var grid = GetGrid(form);
-            var rows = Retry(() =>
-            {
-                var r = grid.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem));
-                return r.Length > row ? r : null;
-            }, 3000) ?? throw new Exception($"ไม่พบแถวที่ {row + 1} ในตาราง");
 
-            var cells = rows[row].FindAllChildren();
-            if (col >= cells.Length) throw new Exception($"แถวที่ {row + 1} มีเพียง {cells.Length} เซลล์");
+            // เซลล์ของ grid นี้เป็น DataItem ชื่อ "<ชื่อคอลัมน์> row N" (ไม่ได้เป็นลูกของ element แถว)
+            // → รวมเซลล์ที่เลขแถวตรงกัน แล้วเรียงซ้ายไปขวาเป็นลำดับคอลัมน์
+            var suffix = new System.Text.RegularExpressions.Regex($@"\brow {row}$");
+            List<AutomationElement> cells = new();
+            Retry(() =>
+            {
+                cells = grid.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem))
+                    .Where(e => { try { return suffix.IsMatch(e.Name ?? "") && !e.BoundingRectangle.IsEmpty; } catch { return false; } })
+                    .OrderBy(e => e.BoundingRectangle.Left).ToList();
+                return cells.Count > col ? cells : null;
+            }, 3000);
+
+            if (cells.Count <= col)
+            {
+                // สำรอง: โครงสร้างแบบแถวที่มีเซลล์เป็นลูก
+                var rowElements = grid.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem));
+                if (rowElements.Length > row)
+                {
+                    var children = rowElements[row].FindAllChildren();
+                    if (col < children.Length) return children[col];
+                }
+                var names = string.Join(", ", grid.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem)).Take(12).Select(e => $"'{e.Name}'"));
+                throw new Exception($"แถวที่ {row + 1} มีเพียง {cells.Count} เซลล์ (ต้องการคอลัมน์ {col + 1}); DataItem ที่เห็น: {names}");
+            }
             return cells[col];
         }
 

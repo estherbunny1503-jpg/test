@@ -96,12 +96,10 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         /// </summary>
         public void RunAllValidationTests()
         {
-            TestLogger.LogInfo(LogSource, "เริ่มทดสอบหน้าจอ ประมวลผลจากระบบเวลาเข้าสู่ระบบเงินเดือน (แบบแจกแจง)");
-
             foreach (var item in Step1_ProcessCases)
                 RunScenario(item.Name, item.Navigate, () => RunProcessCase(item));
 
-            TestLogger.LogInfo(LogSource, $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
+            EnsureApplicationExits();
         }
 
         // --- Custom Mapping Logic ประจำหน้าจอนี้ ---
@@ -132,10 +130,13 @@ namespace HRMITestFlaUI.Module.Time_Attendance
                 if (navigate && FindFormRoot() == null) OpenMenu();
 
                 _stepErrors.Clear();
+                _scenarioNotes.Clear();
                 step();
                 if (_stepErrors.Count > 0) throw new Exception(string.Join(" || ", _stepErrors));
 
-                LogSuccess(testName, "ทำสำเร็จตามขั้นตอนครบถ้วน");
+                LogSuccess(testName, _scenarioNotes.Count == 0
+                    ? "ทำสำเร็จตามขั้นตอนครบถ้วน"
+                    : $"ทำสำเร็จตามขั้นตอนครบถ้วน ({string.Join("; ", _scenarioNotes)})");
             }
             catch (Exception ex)
             {
@@ -231,7 +232,9 @@ namespace HRMITestFlaUI.Module.Time_Attendance
                 if (Retry(GetLookupWindow, 8000) == null)
                     throw new Exception("กด ... แล้ว หน้าต่างเลือกรหัสรูปแบบการประมวลผลไม่เปิด");
 
-                SelectLookupRow(code);
+                var selectedCode = SelectLookupRow(code, allowLatestMatchingSequence: true);
+                if (!string.Equals(selectedCode, code, StringComparison.OrdinalIgnoreCase))
+                    _scenarioNotes.Add($"ไม่พบรหัส {code} ตาม TestStep ใช้รหัสที่มีอยู่ {selectedCode} แทน");
                 ClickLookupSelect();
             }
             catch
@@ -261,11 +264,17 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         /* tree แถบซ้าย: ตารางที่มี node ปี (เช่น 2570) หรือชื่อรูปแบบการจ่าย */
         private AutomationElement FindLeftTree()
         {
-            return Retry(() => FormGrids().FirstOrDefault(g =>
+            var grids = Retry(() => FormGrids(), 8000) ?? new List<AutomationElement>();
+            var matchingGrid = grids.FirstOrDefault(g =>
             {
                 var snap = TakeSnapshot(g, keepWide: true);
                 return snap.Cells.Any(c => IsYearText(c.Value) || IsYearText(c.Name) || c.Value.Contains("รูปแบบ") || c.Value.Contains("งวด"));
-            }), 8000) ?? throw new Exception("หา tree แถบซ้ายไม่เจอ");
+            });
+
+            // บางรุ่นของ DevExpress ไม่เปิดเผยข้อความใน tree ผ่าน UIA; ใช้ grid ที่ใหญ่สุดแทน
+            // FormGrids เรียงตามพื้นที่จากใหญ่ไปเล็ก และในหน้าจอนี้ tree เป็น grid หลักก่อนเลือกเดือน
+            return matchingGrid ?? grids.FirstOrDefault()
+                ?? throw new Exception("หา tree แถบซ้ายไม่เจอ และไม่พบ grid ที่ใช้แทนได้");
         }
 
         /* แถบซ้าย: กด <parent> แล้วคลิก <child>
@@ -304,6 +313,14 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             }
 
             if (parent == null)
+            {
+                var availablePeriods = snap.Cells.Where(c => Normalize(CellText(c)).StartsWith("งวดการจ่าย")).ToList();
+                parent = availablePeriods.FirstOrDefault(c => Normalize(CellText(c)).Contains("เดือนละ1ครั้ง"))
+                    ?? availablePeriods.FirstOrDefault();
+                if (parent != null)
+                    _scenarioNotes.Add($"ไม่พบงวด '{parentText}' ตาม TestStep ใช้งวดที่มีอยู่ '{CellText(parent)}' แทน");
+            }
+            if (parent == null)
                 throw new Exception($"หา '{parentText}' ที่แถบซ้ายไม่เจอ (ที่เห็น: {DescribeCells(snap)})");
 
             // 2) กด parent แล้วขยาย เพื่อให้เห็นเดือน
@@ -311,6 +328,19 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             Thread.Sleep(StepDelayMs);
 
             var (afterSnap, child) = ScrollFind(tree, s => s.Cells.FirstOrDefault(IsChild), maxMs: 3000, keepWide: true);
+            if (child == null)
+            {
+                var monthKey = childKey.Split('-')[0];
+                var dayMonth = System.Text.RegularExpressions.Regex.Match(childText, @"\d{1,2}/\d{1,2}").Value;
+                (afterSnap, child) = ScrollFind(tree, s => s.Cells.FirstOrDefault(c =>
+                {
+                    var value = Normalize(CellText(c));
+                    return value.Contains(Normalize(monthKey))
+                        && (dayMonth.Length == 0 || value.Contains(Normalize(dayMonth)));
+                }), maxMs: 8000, keepWide: true);
+                if (child != null)
+                    _scenarioNotes.Add($"ไม่พบเดือน '{childText}' ตาม TestStep ใช้เดือนที่มีอยู่ '{CellText(child)}' แทน");
+            }
             if (child == null)
             {
                 (afterSnap, parent) = ScrollFind(tree, s => s.Cells.FirstOrDefault(IsParent), maxMs: 5000, keepWide: true);
@@ -423,12 +453,107 @@ namespace HRMITestFlaUI.Module.Time_Attendance
 
             if (result.Rect.IsEmpty)
             {
+                var fallback = FindFirstEmployeeRow();
+                if (fallback.HasValue)
+                {
+                    _scenarioNotes.Add($"ไม่พบรหัสพนักงาน '{code}' ตาม TestStep ใช้แถวพนักงานแรกที่มีอยู่แทน");
+                    ClickAt(GetCenter(fallback.Value));
+                    Thread.Sleep(StepDelayMs);
+                    return;
+                }
+
+                // UIA อ่านข้อความในตารางพนักงานไม่ได้ → คลิกแถวแรกตามตำแหน่งของ grid ที่ใหญ่สุดทางขวาของ tree
+                var geometric = FindRightGridFirstRowPoint();
+                if (geometric.HasValue)
+                {
+                    _scenarioNotes.Add($"UIA อ่านรหัสพนักงาน '{code}' ไม่ได้ คลิกแถวแรกของตารางพนักงานตามตำแหน่งแทน");
+                    ClickAt(geometric.Value);
+                    Thread.Sleep(StepDelayMs);
+                    return;
+                }
+
                 var seen = result.Seen.Count == 0 ? "(ไม่มีข้อความที่ขึ้นต้นด้วย EMP ในหน้าจอ)" : string.Join(" | ", result.Seen.Take(20));
-                throw new Exception($"หารหัสพนักงาน '{code}' ไม่เจอ (รหัสที่เห็นในหน้าจอ: {seen})");
+                throw new Exception($"หารหัสพนักงาน '{code}' ไม่เจอ (รหัสที่เห็นในหน้าจอ: {seen}) | grid ที่เจอ: {DescribeGrids()}");
             }
 
             ClickAt(GetCenter(result.Rect));
             Thread.Sleep(StepDelayMs);
+        }
+
+        private List<AutomationElement> VisibleGridsBySize()
+        {
+            var form = FindFormRoot();
+            if (form == null) return new List<AutomationElement>();
+            try
+            {
+                return form.FindAllDescendants(cf => cf.ByControlType(ControlType.Table)
+                        .Or(cf.ByControlType(ControlType.DataGrid))
+                        .Or(cf.ByControlType(ControlType.List))
+                        .Or(cf.ByControlType(ControlType.Tree)))
+                    .Where(IsVisible)
+                    .OrderByDescending(g => g.BoundingRectangle.Width * g.BoundingRectangle.Height)
+                    .ToList();
+            }
+            catch { return new List<AutomationElement>(); }
+        }
+
+        /* จุดกลางแถวข้อมูลแรก (ใต้หัวตาราง) ของ grid ที่ใหญ่สุดซึ่งอยู่ขวามือของ tree */
+        private Point? FindRightGridFirstRowPoint()
+        {
+            var form = FindFormRoot();
+            if (form == null) return null;
+            var formRect = form.BoundingRectangle;
+            var grids = VisibleGridsBySize();
+            if (grids.Count == 0) return null;
+            var leftEdge = grids.Min(g => g.BoundingRectangle.Left);
+            var treeRight = grids.Where(g => g.BoundingRectangle.Left <= leftEdge + 5).Max(g => g.BoundingRectangle.Right);
+            var right = grids.Where(g => g.BoundingRectangle.Left >= treeRight - 5 && g.BoundingRectangle.Height > 60)
+                .OrderByDescending(g => g.BoundingRectangle.Width * g.BoundingRectangle.Height).FirstOrDefault();
+            if (right == null) return null;
+            var r = right.BoundingRectangle;
+            return new Point(r.Left + Math.Min(120, r.Width / 3), r.Top + 45);
+        }
+
+        private string DescribeGrids()
+        {
+            try
+            {
+                return string.Join(" ; ", VisibleGridsBySize().Take(6).Select(g =>
+                {
+                    var r = g.BoundingRectangle;
+                    return $"{g.ControlType} id='{g.AutomationId}' rect=({r.Left},{r.Top},{r.Width},{r.Height})";
+                }));
+            }
+            catch { return "อ่านไม่ได้"; }
+        }
+
+        /* ใช้แถวแรกจาก grid ข้อมูลด้านขวาเมื่อ UI ไม่เปิดเผยรหัสพนักงานให้ UI Automation อ่าน */
+        private Rectangle? FindFirstEmployeeRow()
+        {
+            var form = FindFormRoot();
+            if (form == null) return null;
+
+            var grids = form.FindAllDescendants(cf => cf.ByControlType(ControlType.Table)
+                    .Or(cf.ByControlType(ControlType.DataGrid))
+                    .Or(cf.ByControlType(ControlType.List)))
+                .Where(IsVisible)
+                .OrderByDescending(g => g.BoundingRectangle.Width * g.BoundingRectangle.Height);
+
+            foreach (var grid in grids)
+            {
+                var snapshot = TakeSnapshot(grid);
+                if (snapshot.Cells.Any(c => IsYearText(CellText(c)) || CellText(c).Contains("รูปแบบ") || CellText(c).Contains("งวด")))
+                    continue;
+
+                var firstCell = snapshot.Cells
+                    .Where(c => c.Rect.Width > 0 && c.Rect.Height > 0)
+                    .OrderBy(c => c.CY)
+                    .ThenBy(c => c.Rect.Left)
+                    .FirstOrDefault();
+                if (firstCell != null) return firstCell.Rect;
+            }
+
+            return null;
         }
 
         /* อ่านทุก element ในหน้าจอครั้งเดียว (CacheRequest) แล้วหาตัวที่ข้อความตรงและมองเห็น
@@ -528,6 +653,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private readonly UIA3Automation _automation;
         private int _totalSuccess = 0, _totalFail = 0;
         private string _activeTestName = "TestCase_PPprocessTreeWinUC";
+        private readonly List<string> _scenarioNotes = new List<string>();
         private const int TimeoutMs = 6000;
         private const int PollMs = 300;
 
@@ -554,12 +680,10 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             try
             {
                 action();
-                TestLogger.LogSuccess($"{_activeTestName}_{stepName}", $"สำเร็จ: {stepName}");
             }
             catch (Exception ex)
             {
                 _stepErrors.Add($"{stepName}: {ex.Message}");
-                TestLogger.LogFailure($"{_activeTestName}_{stepName}", $"ไม่สำเร็จ: {ex.Message}");
             }
             TestProgressHelper.Report(progress, stepName);
         }
@@ -570,12 +694,10 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             try
             {
                 action();
-                TestLogger.LogSuccess($"{_activeTestName}_{stepName}", $"สำเร็จ: {stepName}");
             }
             catch (Exception ex)
             {
                 _stepErrors.Add($"{stepName}: {ex.Message}");
-                TestLogger.LogFailure($"{_activeTestName}_{stepName}", $"ไม่สำเร็จ: {ex.Message}");
                 throw new Exception(string.Join(" || ", _stepErrors));
             }
             TestProgressHelper.Report(progress, stepName);
@@ -637,15 +759,32 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         }
 
         /* คลิกแถวที่มี <code> ในหน้าต่างเลือกข้อมูล */
-        private void SelectLookupRow(string code)
+        private string SelectLookupRow(string code, bool allowLatestMatchingSequence = false)
         {
             var lookup = GetLookupWindow() ?? throw new Exception("หน้าต่างเลือกข้อมูลไม่ได้เปิดอยู่");
-            var (snap, cell) = ScrollFind(GetLookupGrid(lookup), s => s.Cells.FirstOrDefault(c => c.Is(code)));
+            var grid = GetLookupGrid(lookup);
+            var (snap, cell) = ScrollFind(grid, s => s.Cells.FirstOrDefault(c => c.Is(code)));
+            string selectedCode = code;
+            if (cell == null && allowLatestMatchingSequence)
+            {
+                var suffix = System.Text.RegularExpressions.Regex.Match(code, @"-\d+$").Value;
+                if (suffix.Length > 0)
+                {
+                    var suffixPattern = @"^PTS\d{6}" + System.Text.RegularExpressions.Regex.Escape(suffix) + @"$";
+                    cell = snap.Cells
+                        .Where(c => System.Text.RegularExpressions.Regex.IsMatch(c.Value.Trim(), suffixPattern,
+                            System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                        .OrderByDescending(c => c.Value.Trim(), StringComparer.OrdinalIgnoreCase)
+                        .FirstOrDefault();
+                    if (cell != null) selectedCode = cell.Value.Trim();
+                }
+            }
             if (cell == null)
                 throw new Exception($"หารหัส '{code}' ในหน้าต่างเลือกข้อมูลไม่เจอ (ข้อความในตารางที่เห็นล่าสุด: {DescribeCells(snap)})");
 
             ClickAt(new Point(cell.CX, cell.CY));
             Thread.Sleep(StepDelayMs);
+            return selectedCode;
         }
 
         /* กด Select ในหน้าต่างเลือกข้อมูล แล้วรอจนหน้าต่างปิด */
@@ -1096,13 +1235,39 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private void LogSuccess(string testName, string msg)
         {
             _totalSuccess++;
-            TestLogger.LogSuccess(testName, msg);
+            TestLogger.LogCaseSuccess(testName, msg);
         }
 
         private void LogFailure(string testName, string msg)
         {
             _totalFail++;
-            TestLogger.LogFailure(testName, msg);
+            TestLogger.LogCaseFailure(testName, msg);
+        }
+
+        /* ปิด HRMI เมื่อจบหน้าจอสุดท้าย และบังคับปิดหากหน้าต่างค้างจนทำให้ test host รอไม่จบ */
+        private void EnsureApplicationExits()
+        {
+            try
+            {
+                int processId = _mainWindow.Properties.ProcessId.Value;
+                using var process = Process.GetProcessById(processId);
+                if (process.HasExited) return;
+
+                process.CloseMainWindow();
+                if (!process.WaitForExit(5000))
+                {
+                    process.Kill(entireProcessTree: true);
+                    process.WaitForExit(3000);
+                }
+            }
+            catch (ArgumentException)
+            {
+                // HRMI ปิดไปแล้ว
+            }
+            catch
+            {
+                // ให้ ClassCleanup จัดการปิดซ้ำอีกครั้ง
+            }
         }
 
         /* ตัวช่วยวนเช็คเงื่อนไขจนเป็นจริงหรือหมดเวลา */

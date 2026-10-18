@@ -34,8 +34,12 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         // [ขั้นที่ 1] ข้อมูลทดสอบ Import ข้อมูลเวลาการทำงาน (Import)  Progress: 5 -> 100
         private static readonly ImportItem[] Step1_ImportCases =
         {
-            new("TestCase_ImportTimeAttendance_1", "1/1/2569", "31/12/2569", "Import_TimeAttendance_Data")
+            new("TestCase01_ImportTimeAttendance_1",
+                "1/1/2569", "31/12/2569",
+                "Import_TimeAttendance_Data")
         };
+
+        // [ขั้นที่ 2] - [ขั้นที่ 5] ยังไม่มี Test Step ใน TestStep.xlsx สำหรับหน้าจอนี้
 
         // ไฟล์ Import (ใช้ค้นหาไฟล์ตอนกด Browse)
         private static string ImportDataFolder => TestDataPaths.Folder; // C:\TestData (เปลี่ยนได้ด้วย HRMI_TEST_DATA_DIR)
@@ -51,8 +55,6 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private const string LogSource = "FrmImportTime";
 
         // ── เมนูหลัก ──
-        private const string TimeAttendanceMenuName = "Time Attendance";
-        private const string ImportMenuRowName = "treeListColumn row 6";
         private const string ImportMenuLabel = "Import ข้อมูลเวลาการทำงาน";
 
         // ── Automation ID ──
@@ -73,7 +75,6 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private static readonly string[] ForbiddenNavNames = { "Cancel", "ยกเลิก" };
 
         // 2.2 ค่า Timeout / Delay ประจำหน้าจอ
-        private const int MenuTransitionDelayMs = 400;
         private const int PageLoadDelayMs = 800;
         private const int WizardStepDelayMs = 800;
         private const int WizardProcessingDelayMs = 2500;
@@ -84,7 +85,6 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private const int OpenDialogDelayMs = 1200;
         private const int FieldBindRetryTimeoutMs = 15000;
         private const int FieldBindRetryPollMs = 500;
-        private const int MaxMenuScrollSteps = 10;
 
         /// <summary>
         /// ขั้นที่ 1: เปิดหน้าจอ Import ข้อมูลเวลาการทำงาน (Progress 0 -> 5)
@@ -101,13 +101,28 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         /// </summary>
         public void RunAllValidationTests()
         {
-            TestLogger.LogInfo(LogSource, "เริ่มทดสอบหน้าจอ Import ข้อมูลเวลาการทำงาน");
+            TestLogger.LogInfo(LogSource, $"เริ่มทดสอบ{ImportMenuLabel} ({Step1_ImportCases.Length} รายการ)");
 
             foreach (var i in Step1_ImportCases)
                 RunScenario(i.Name, () => ImportTimeAttendanceData(i.Start, i.End, i.File));
 
-            TestLogger.LogInfo(LogSource, $"สรุปผลรวมทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
+            LogTotalSummary();
         }
+
+        /// <summary>
+        /// ขั้นที่ 3: แก้ไขข้อมูล (ยังไม่มี Test Step ใน Excel)
+        /// </summary>
+        public void RunEditTests() { }
+
+        /// <summary>
+        /// ขั้นที่ 4: Validation ตอนแก้ไขข้อมูล (ยังไม่มี Test Step ใน Excel)
+        /// </summary>
+        public void RunEditValidationTests() { }
+
+        /// <summary>
+        /// ขั้นที่ 5: ลบข้อมูล (ยังไม่มี Test Step ใน Excel)
+        /// </summary>
+        public void RunDeleteTests() { }
 
         // --- Custom Mapping Logic ประจำหน้าจอนี้ ---
 
@@ -181,26 +196,6 @@ namespace HRMITestFlaUI.Module.Time_Attendance
             MenuSearch.Open(_mainWindow, ImportMenuLabel);
             Thread.Sleep(PageLoadDelayMs);
         }
-
-        /* กด Line Down เลื่อนรายการเมนูลงจนเจอเมนูที่ต้องการ */
-        private AutomationElement? ScrollToMenuRow()
-        {
-            var lineDown = _mainWindow.FindFirstDescendant(cf => cf.ByName("Line Down"));
-            if (lineDown != null)
-            {
-                for (int i = 0; i < MaxMenuScrollSteps; i++)
-                {
-                    ClickCenter(lineDown);
-                    var row = Retry(FindImportMenuRow, 500);
-                    if (row != null) return row;
-                }
-            }
-            return Retry(FindImportMenuRow, 3000);
-        }
-
-        private AutomationElement? FindImportMenuRow() =>
-            _mainWindow.FindFirstDescendant(cf => cf.ByName(ImportMenuRowName))
-            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName(ImportMenuLabel));
 
         private AutomationElement? FindDateStartField() => FindDescendant(cf => cf.ByAutomationId(IdDateStart));
 
@@ -440,7 +435,7 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private readonly AutomationElement _mainWindow;
         private readonly UIA3Automation _automation;
         private int _totalSuccess = 0, _totalFail = 0;
-        private string _activeTestName = "TestCase_ImportTimeAttendance";
+        private string _activeTestName = "TestCase01_ImportTimeAttendance";
         private const int TimeoutMs = 6000;
         private const int PollMs = 300;
 
@@ -650,14 +645,18 @@ namespace HRMITestFlaUI.Module.Time_Attendance
         private void LogSuccess(string testName, string msg)
         {
             _totalSuccess++;
-            TestLogger.LogSuccess(testName, msg);
+            TestLogger.LogCaseSuccess(testName, msg);
         }
 
         private void LogFailure(string testName, string msg)
         {
             _totalFail++;
-            TestLogger.LogFailure(testName, msg);
+            TestLogger.LogCaseFailure(testName, msg);
         }
+
+        /* แสดง Log สรุปผลรวมท้ายสุด */
+        private void LogTotalSummary() =>
+            TestLogger.LogInfo(LogSource, $"สรุปผลการทดสอบทั้งหมด: สำเร็จ {_totalSuccess} รายการ, ไม่สำเร็จ {_totalFail} รายการ");
 
         /* ตัวช่วยวนเช็คเงื่อนไขจนเป็นจริงหรือหมดเวลา */
         private static bool WaitUntil(Func<bool> condition, int timeoutMs = TimeoutMs, int pollMs = 100)

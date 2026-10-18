@@ -256,30 +256,33 @@ namespace HRMITestFlaUI.Base
         /* Method: ตรวจสอบแบบ Active Polling จนกว่าหน้าต่างหลักพร้อมทำงาน */
         private static void WaitForMainWindowReady(int timeoutSeconds)
         {
+            Window? readyWindow = null;
             bool isReady = WaitUntil(() =>
             {
                 try
                 {
                     var hrmiProc = Process.GetProcessesByName(ProcessName).FirstOrDefault();
-                    if (hrmiProc == null || hrmiProc.MainWindowHandle == IntPtr.Zero) return false;
+                    if (hrmiProc == null) return false;
 
-                    hrmiProc.Refresh();
-                    var win = automation.FromHandle(hrmiProc.MainWindowHandle)?.AsWindow();
-                    if (win != null && win.IsAvailable && !win.Properties.IsOffscreen.ValueOrDefault)
-                    {
-                        string title = win.Title ?? string.Empty;
-                        // หน้าต่างหลักพร้อมแล้วเมื่อไม่ใช่หน้า Login
-                        return !string.IsNullOrWhiteSpace(title) && !title.Equals("Login", StringComparison.OrdinalIgnoreCase);
-                    }
-                    return false;
+                    // MainWindowHandle อาจชี้ไปยังฟอร์ม Login/หน้าต่างว่าง แม้หน้าหลักเปิดอยู่แล้ว
+                    // จึงไล่หน้าต่าง top-level ของ process HRMI และเลือกฟอร์มที่ไม่ใช่ Login
+                    var frame = FindHrmiWindows(hrmiProc.Id)
+                        .Where(IsVisibleWindow)
+                        .FirstOrDefault(IsMainApplicationWindow);
+                    readyWindow = frame;
+                    return readyWindow != null;
                 }
                 catch { return false; }
             }, timeoutMs: timeoutSeconds * 1000, pollMs: 250);
 
             if (!isReady)
             {
-                throw new TimeoutException($"❌ หน้าต่างหลักของ {ProcessName} ไม่พร้อมทำงานภายในเวลาที่กำหนด");
+                string windows = DescribeHrmiWindows();
+                throw new TimeoutException($"❌ หน้าต่างหลักของ {ProcessName} ไม่พร้อมทำงานภายในเวลาที่กำหนด. หน้าต่างที่พบ: {windows}");
             }
+
+            if (readyWindow != null)
+                mainWindow = readyWindow;
         }
 
         /* Method 12: ดึง Window Object มาเก็บไว้ในตัวแปร mainWindow */
@@ -287,6 +290,14 @@ namespace HRMITestFlaUI.Base
         {
             var hrmiProcess = Process.GetProcessesByName(ProcessName).FirstOrDefault()
                 ?? throw new Exception($"❌ ไม่พบโปรแกรม {ProcessName} กำลังรันอยู่");
+
+            // ถ้าหน้าหลักถูกค้นพบจาก UI Automation แล้ว ใช้ handle นั้นโดยตรง
+            // แทนการพึ่ง Process.MainWindowHandle ซึ่งอาจยังเป็นศูนย์หรือชี้ฟอร์มเก่า
+            if (mainWindow != null && mainWindow.IsAvailable && IsMainApplicationWindow(mainWindow))
+            {
+                app = FlaUIApplication.Attach(hrmiProcess.Id);
+                return;
+            }
 
             if (!TryWaitForMainWindowHandle(hrmiProcess, MainWindowWaitSeconds))
                 throw new Exception($"❌ {ProcessName} เปิดแล้วแต่หา MainWindowHandle ไม่ได้");
@@ -305,6 +316,58 @@ namespace HRMITestFlaUI.Base
             }, timeoutMs: 15000);
 
             mainWindow = (ok && win != null) ? win : throw new Exception("❌ ดึง Window object จาก MainWindowHandle ไม่สำเร็จ");
+        }
+
+        private static IEnumerable<Window> FindHrmiWindows(int processId)
+        {
+            return automation.GetDesktop().FindAllChildren(cf => cf.ByProcessId(processId))
+                .Where(e => e.ControlType == ControlType.Window)
+                .Select(e => e.AsWindow())
+                .Where(w => w != null)!;
+        }
+
+        private static bool IsVisibleWindow(Window window)
+        {
+            try { return window.IsAvailable && !window.Properties.IsOffscreen.ValueOrDefault; }
+            catch { return false; }
+        }
+
+        private static bool IsMainApplicationWindow(Window window)
+        {
+            try
+            {
+                string title = window.Title?.Trim() ?? string.Empty;
+                string id = window.AutomationId ?? string.Empty;
+                // splash ขึ้นก่อนหน้าหลักระหว่างโปรแกรมเริ่มทำงาน ห้ามผูกเป็น mainWindow
+                if (title.Contains("splash", StringComparison.OrdinalIgnoreCase)
+                    || id.Contains("splash", StringComparison.OrdinalIgnoreCase))
+                    return false;
+                // หน้าหลักจริงคือ frmFrame / "Prosoft HRMI (...)"; ฟอร์มอื่น เช่น Configuration/Splash ไม่ใช่
+                if (!id.Equals("frmFrame", StringComparison.OrdinalIgnoreCase)
+                    && !title.StartsWith("Prosoft HRMI", StringComparison.OrdinalIgnoreCase))
+                    return false;
+                return !string.IsNullOrWhiteSpace(title)
+                    && !title.Equals("Login", StringComparison.OrdinalIgnoreCase)
+                    && !title.Contains("เข้าสู่ระบบ", StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
+        }
+
+        private static string DescribeHrmiWindows()
+        {
+            try
+            {
+                var process = Process.GetProcessesByName(ProcessName).FirstOrDefault();
+                if (process == null) return "ไม่พบ process";
+                var details = FindHrmiWindows(process.Id)
+                    .Select(w =>
+                    {
+                        try { return $"'{w.Title}' (id='{w.AutomationId}', offscreen={w.Properties.IsOffscreen.ValueOrDefault})"; }
+                        catch { return "<อ่านรายละเอียดหน้าต่างไม่ได้>"; }
+                    });
+                return string.Join(", ", details.DefaultIfEmpty("ไม่พบหน้าต่าง UIA"));
+            }
+            catch (Exception ex) { return $"อ่านหน้าต่างไม่สำเร็จ: {ex.Message}"; }
         }
 
         private static bool TryWaitForMainWindowHandle(Process process, int timeoutSeconds)
@@ -461,21 +524,12 @@ namespace HRMITestFlaUI.Base
                     var hrmiProcess = Process.GetProcessesByName(ProcessName).FirstOrDefault();
                     if (hrmiProcess != null)
                     {
-                        hrmiProcess.Refresh();
-                        IntPtr hWnd = hrmiProcess.MainWindowHandle;
-                        if (hWnd != IntPtr.Zero)
+                        var appWindow = FindHrmiWindows(hrmiProcess.Id)
+                            .FirstOrDefault(w => IsVisibleWindow(w) && IsMainApplicationWindow(w));
+                        if (appWindow != null)
                         {
-                            var win = automation.FromHandle(hWnd)?.AsWindow();
-                            if (win != null && win.IsAvailable && !win.Properties.IsOffscreen.ValueOrDefault)
-                            {
-                                string title = win.Title ?? string.Empty;
-                                // เมื่อหน้าต่างไม่ใช่ Login แปลว่าเข้าสู่หน้าจอหลักเรียบร้อย
-                                if (!string.IsNullOrWhiteSpace(title) && !title.Equals("Login", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    mainWindow = win;
-                                    return;
-                                }
-                            }
+                            mainWindow = appWindow;
+                            return;
                         }
                     }
                 }
@@ -486,6 +540,45 @@ namespace HRMITestFlaUI.Base
 
                 Thread.Sleep(200);
             }
+
+            // Previously this method returned silently after 60 seconds, so setup continued and
+            // later blamed main-window attachment even though HRMI was still showing Login.
+            throw new TimeoutException($"Login ไม่สำเร็จภายใน {PopupTotalWaitTimeout.TotalSeconds:0} วินาที; หน้าต่างที่พบ: {DescribeHrmiWindows()}; {DescribeLoginFormState()}");
+        }
+
+        private static string DescribeLoginFormState()
+        {
+            try
+            {
+                var login = FindHrmiWindows(Process.GetProcessesByName(ProcessName).FirstOrDefault()?.Id ?? -1)
+                    .FirstOrDefault(w => string.Equals(w.Title?.Trim(), "Login", StringComparison.OrdinalIgnoreCase));
+                if (login == null) return "ไม่พบฟอร์ม Login";
+                var controls = login.FindAllDescendants()
+                    .Select(e =>
+                    {
+                        string id = e.Properties.AutomationId.ValueOrDefault ?? "";
+                        string name = e.Name ?? "";
+                        string value = "";
+                        if (id != IdPassword)
+                        {
+                            try { value = e.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault ?? ""; } catch { }
+                        }
+                        return new { Id = id, Name = name, Value = value };
+                    })
+                    .Where(x => !string.IsNullOrWhiteSpace(x.Id) || !string.IsNullOrWhiteSpace(x.Name) || !string.IsNullOrWhiteSpace(x.Value))
+                    .Select(x => string.IsNullOrWhiteSpace(x.Value)
+                        ? $"{x.Name} (id='{x.Id}')"
+                        : $"{x.Name} (id='{x.Id}', value='{x.Value}')")
+                    .Distinct().Take(35);
+                var loginButton = login.FindFirstDescendant(cf => cf.ByAutomationId(IdBtnLogin));
+                string buttonState = loginButton == null ? "ไม่พบปุ่ม Login" :
+                    $"ปุ่ม Login enabled={loginButton.Properties.IsEnabled.ValueOrDefault}, rect={loginButton.BoundingRectangle}";
+                var errorPanel = login.FindFirstDescendant(cf => cf.ByAutomationId(IdErrorPanel));
+                string errorText = errorPanel == null ? "ไม่พบ error panel" :
+                    string.Join(" ", errorPanel.FindAllDescendants().Select(e => e.Name).Where(n => !string.IsNullOrWhiteSpace(n)));
+                return $"Login controls: {string.Join(" | ", controls)}; {buttonState}; Login error text: '{errorText}'";
+            }
+            catch (Exception ex) { return $"อ่านสถานะ Login ไม่ได้: {ex.Message}"; }
         }
 
         /* Method 21: จัดการเคลียร์ Pop-up ขัดขวางทั้งหมด */

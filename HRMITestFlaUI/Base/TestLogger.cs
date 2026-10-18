@@ -73,6 +73,9 @@ namespace HRMITestFlaUI.Base
         public static void LogFailure(string testName, string message) => Write("FAIL", testName, message);
         public static void LogInfo(string testName, string message) => Write("INFO", testName, message);
 
+        public static void LogCaseSuccess(string testName, string message) => Write("PASS", testName, message, isCaseSummary: true);
+        public static void LogCaseFailure(string testName, string message) => Write("FAIL", testName, message, isCaseSummary: true);
+
         public static string GetCurrentLogFilePath() => LogFilePath;
 
         private static void InitExcel()
@@ -101,8 +104,11 @@ namespace HRMITestFlaUI.Base
             }
         }
 
-        private static void Write(string status, string testName, string message)
+        private static void Write(string status, string testName, string message, bool isCaseSummary = false)
         {
+            if (string.Equals(_module, "Time Attendance", StringComparison.OrdinalIgnoreCase) && !isCaseSummary)
+                return;
+
             string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
             double elapsed = Math.Round((DateTime.Now - _startTime).TotalSeconds, 2);
             var style = StatusStyles[status];

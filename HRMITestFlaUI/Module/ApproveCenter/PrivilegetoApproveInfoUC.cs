@@ -72,12 +72,14 @@ namespace HRMITestFlaUI.Module.Approve_Center
                 true,
                 "Save",
                 true),
-            // ลบรหัสพนักงาน แล้วกด ... ติ๊ก EMP00004 กด Select (ลบก่อน แล้วเปิดใหม่ติ๊ก)
+            // ลบรหัสพนักงาน แล้วกด ... ติ๊กพนักงานที่ว่าง กด Select (ลบก่อน แล้วเปิดใหม่ติ๊ก)
+            // ใช้ EMP00003 แทน EMP00004 ตาม TestStep เพราะ Record1 กำหนด EMP00004 ให้ EMP00001 แล้ว
+            // และหน้าต่างเลือกข้อมูลไม่แสดงพนักงานที่มีผู้อนุมัติคนอื่นอยู่แล้ว
             new(
                 "TestCase03_EditData_Record2_EMP00002",
                 "EMP00002",
                 AnyScreen,
-                "EMP00004",
+                "EMP00003",
                 false,
                 "Save and Close",
                 false)
@@ -366,18 +368,30 @@ namespace HRMITestFlaUI.Module.Approve_Center
 
                 // ผลลัพธ์เมนู (ไม่เอาช่องค้นหาเองที่ตอนนี้มีข้อความเท่าชื่อเมนู / แท็บ / หน้าต่าง)
                 var target = Normalize(searchKeyword);
-                var menuResult = Retry(() =>
-                    _mainWindow.FindAllDescendants()
-                        .Where(e => HasArea(e) && !e.Equals(searchBox))
-                        .Where(e =>
+                // หาแบบเบาก่อน (แถว treeListColumn row N ที่ค่าตรงคำค้น) และหน่วงเวลาระหว่างรอบ
+                // ไม่วน FindAllDescendants ทั้งหน้าต่างถี่ๆ เพราะทำให้โปรแกรมช้าจนผลลัพธ์ยังไม่แสดง
+                AutomationElement? menuResult = null;
+                var searchWatch = Stopwatch.StartNew();
+                for (int attempt = 0; menuResult == null && searchWatch.ElapsedMilliseconds < 15000; attempt++)
+                {
+                    Thread.Sleep(300);
+                    try
+                    {
+                        for (int row = 0; row < 6 && menuResult == null; row++)
                         {
-                            var t = SafeControlTypeValue(e);
-                            return t != ControlType.Edit && t != ControlType.TabItem
-                                && t != ControlType.Window && t != ControlType.TitleBar;
-                        })
-                        .FirstOrDefault(e => TextMatches(e, target))
-                    ?? _mainWindow.FindFirstDescendant(cf => cf.ByName(SearchResultFallbackName)), 4000)
-                               ?? throw new Exception("ไม่พบผลลัพธ์เมนูจากการค้นหา");
+                            var rowName = $"treeListColumn row {row}";
+                            var candidate = _mainWindow.FindFirstDescendant(cf => cf.ByName(rowName));
+                            if (candidate != null && HasArea(candidate) && TextMatches(candidate, target))
+                                menuResult = candidate;
+                        }
+                        if (menuResult == null && attempt % 4 == 3)
+                            menuResult = FindMenuResultLoosely(target, searchBox);
+                    }
+                    catch { }
+                }
+                menuResult ??= _mainWindow.FindFirstDescendant(cf => cf.ByName(SearchResultFallbackName));
+                _ = menuResult
+                               ?? throw new Exception($"ไม่พบผลลัพธ์เมนูจากการค้นหา (element ในแผงเมนู: {DescribeMenuPanel()})");
 
                 try { menuResult.Focus(); } catch { }
                 ClickCenter(menuResult);
@@ -396,6 +410,47 @@ namespace HRMITestFlaUI.Module.Approve_Center
                 LogFailure(stage, $"ค้นหาและเปิดหน้าจอไม่สำเร็จ: {ex.Message}{CleanupAfterFailure()}");
                 return false;
             }
+        }
+
+        /* ผลลัพธ์เมนูที่ข้อความมีคำค้นอยู่ (ไม่ต้องตรงทั้งหมด) เฉพาะ element ที่เป็นแถว/โหนดในแผงเมนูซ้าย */
+        private AutomationElement? FindMenuResultLoosely(string target, AutomationElement searchBox)
+        {
+            try
+            {
+                var panelRight = _mainWindow.BoundingRectangle.Left + _mainWindow.BoundingRectangle.Width * 0.3;
+                return _mainWindow.FindAllDescendants()
+                    .Where(e => HasArea(e) && !e.Equals(searchBox) && e.BoundingRectangle.Left < panelRight)
+                    .Where(e =>
+                    {
+                        var t = SafeControlTypeValue(e);
+                        return t != ControlType.Edit && t != ControlType.TabItem && t != ControlType.Window && t != ControlType.TitleBar;
+                    })
+                    .FirstOrDefault(e =>
+                    {
+                        string v = "";
+                        try { v = e.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault ?? ""; } catch { }
+                        return Normalize(v).Contains(target, StringComparison.OrdinalIgnoreCase)
+                            || Normalize(SafeName(e)).Contains(target, StringComparison.OrdinalIgnoreCase);
+                    });
+            }
+            catch { return null; }
+        }
+
+        private string DescribeMenuPanel()
+        {
+            try
+            {
+                var panelRight = _mainWindow.BoundingRectangle.Left + _mainWindow.BoundingRectangle.Width * 0.3;
+                return string.Join(" | ", _mainWindow.FindAllDescendants()
+                    .Where(e => HasArea(e) && e.BoundingRectangle.Left < panelRight && e.BoundingRectangle.Top < _mainWindow.BoundingRectangle.Top + 400)
+                    .Take(25).Select(e =>
+                    {
+                        string v = "";
+                        try { v = e.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault ?? ""; } catch { }
+                        return $"{SafeControlTypeValue(e)} name='{SafeName(e)}' value='{v}'";
+                    }));
+            }
+            catch { return "อ่านไม่ได้"; }
         }
 
         /* รอจนปุ่ม New ในแถบเครื่องมือพร้อมใช้งาน (เหมือนเงื่อนไขท้าย TryOpenMenu ของหน้า BANK) */
