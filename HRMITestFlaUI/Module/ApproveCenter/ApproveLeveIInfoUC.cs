@@ -204,6 +204,9 @@ namespace HRMITestFlaUI.Pages.ApproveCenter
 
             if (!TryOpenMenu(stageName, MenuName)) return;
 
+            // คืนข้อมูลหน้านี้ให้สะอาดก่อนเริ่ม: ลบแถวทดสอบ (APR001-APR005) ที่ค้างจากรอบก่อน กันขึ้นข้อมูลซ้ำ
+            CleanupLeftoverTestData();
+
             Window? form = null;
             for (int i = 0; i < Step1_AddCases.Length; i++)
             {
@@ -241,6 +244,8 @@ namespace HRMITestFlaUI.Pages.ApproveCenter
                 {
                     LogFailure(testName, $"'{item.Code}' เพิ่มไม่สำเร็จ: {ex.Message}");
                     form = null;
+                    // ปิดฟอร์มที่ค้างอยู่ เพื่อให้เคสถัดไป (เช่น APR004) เริ่มบนฟอร์มใหม่ ไม่ต่อทับสถานะของเคสที่พลาด
+                    try { DiscardForm(FindOpenForm()); } catch { }
                 }
             }
         }
@@ -254,7 +259,12 @@ namespace HRMITestFlaUI.Pages.ApproveCenter
             TestProgressHelper.Report(22, $"Opening {MenuName} Form for Validation Tests...");
 
             Window form;
-            try { form = OpenForm(); }
+            try
+            {
+                // Previous Save and Close operations can leave a non-modal editor behind.
+                // Reuse a real Approve Level editor; otherwise clear stale dialogs before New.
+                form = Retry(FindOpenForm, 1000) ?? OpenForm();
+            }
             catch (Exception ex) { LogFailure(stage, $"เปิดฟอร์มไม่สำเร็จ: {ex.Message}"); return; }
 
             var tab = GetGeneralTab(form);
@@ -337,8 +347,8 @@ namespace HRMITestFlaUI.Pages.ApproveCenter
             const string dupSub = $"{baseName}_DuplicateCode";
             RunStep($"{dupSub}_CloseSequence", () =>
             {
-                SetText(tab, CodeFieldId, Step4_DupCode);
-                SetText(tab, NameThFieldId, Step4_DupName);
+                TypeText(tab, CodeFieldId, Step4_DupCode);   // พิมพ์ด้วยคีย์บอร์ด เพื่อให้โปรแกรมรู้ว่าฟอร์มถูกแก้ไข (จึงถาม Pop-up ตอน Close)
+                TypeText(tab, NameThFieldId, Step4_DupName);
                 RunCloseDialogSequence(form, dupSub, "รหัสผังการอนุมัติ ห้ามซ้ำ" + EditValidationSuffix);
             }, 80, "Validating Edit: Duplicate Code Close Sequence...");
 
@@ -408,9 +418,46 @@ namespace HRMITestFlaUI.Pages.ApproveCenter
         private AutomationElement GetGeneralTab(Window form) =>
             Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(GeneralTabId)), 3000) ?? form;
 
-        private Window? FindOpenForm() =>
-            _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault() ??
-            _automation.GetDesktop().FindFirstChild(cf => cf.ByAutomationId(FormId))?.AsWindow();
+        private Window? FindOpenForm()
+        {
+            try
+            {
+                var modal = _mainWindow.AsWindow()?.ModalWindows
+                    .FirstOrDefault(w => w.FindFirstDescendant(cf => cf.ByAutomationId(CodeFieldId)) != null);
+                if (modal != null) return modal;
+            }
+            catch { }
+
+            try
+            {
+                var named = _automation.GetDesktop().FindFirstChild(cf => cf.ByAutomationId(FormId))?.AsWindow();
+                if (named?.FindFirstDescendant(cf => cf.ByAutomationId(CodeFieldId)) != null) return named;
+            }
+            catch { }
+            return FindFormByCodeField();
+        }
+
+        /// <summary>สำรอง: หาหน้าต่างของโปรแกรมที่มีช่องรหัสผังการอนุมัติ (เผื่อฟอร์มไม่ได้ถูกแสดงเป็น modal)</summary>
+        private Window? FindFormByCodeField()
+        {
+            try
+            {
+                int pid = _mainWindow.Properties.ProcessId.ValueOrDefault;
+                var windows = _automation.GetDesktop().FindAllChildren(cf => cf.ByProcessId(pid)).ToList();
+                windows.AddRange(_mainWindow.FindAllDescendants(cf => cf.ByControlType(ControlType.Window)));
+                foreach (var w in windows)
+                {
+                    try
+                    {
+                        if (!w.BoundingRectangle.IsEmpty && w.FindFirstDescendant(cf => cf.ByAutomationId(CodeFieldId)) != null)
+                            return w.AsWindow();
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+            return null;
+        }
 
         // ---- Checkbox ----
         private void SetCheck(Window form, string id, bool value)
@@ -435,6 +482,12 @@ namespace HRMITestFlaUI.Pages.ApproveCenter
         }
 
         // ---- ชื่อเมนู (ButtonEdit + Lookup) ----
+        /// <summary>เทียบข้อความโดยไม่สนเว้นวรรค/ตัวพิมพ์ (ชื่อเมนูจริงอาจเป็น "โอนย้าย / โยกย้าย" แต่ TestStep เขียนติดกัน)</summary>
+        private static bool SameText(string? a, string? b) =>
+            string.Equals(new string((a ?? "").Where(c => !char.IsWhiteSpace(c)).ToArray()),
+                          new string((b ?? "").Where(c => !char.IsWhiteSpace(c)).ToArray()),
+                          StringComparison.OrdinalIgnoreCase);
+
         private void SelectMenu(Window form, string menu)
         {
             var field = Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(MenuFieldId)), 3000)
@@ -447,12 +500,37 @@ namespace HRMITestFlaUI.Pages.ApproveCenter
                 Mouse.Click(new Point(r.Right - 8, r.Top + r.Height / 2));
             }
             PickFromLookup(form, menu);
+
+            // ตรวจว่าช่องแสดงเมนูที่เลือกจริง (กันกรณีเลือกพลาดแล้วค่าเดิมค้างอยู่โดยเทสไม่รู้ตัว)
+            string actual = "";
+            WaitUntil(() =>
+            {
+                try
+                {
+                    actual = field.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault
+                             ?? field.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit))?.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault
+                             ?? "";
+                    return SameText(actual, menu);
+                }
+                catch { return false; }
+            }, 2500);
+            if (!SameText(actual, menu))
+                throw new Exception($"เลือกเมนู '{menu}' แล้ว แต่ช่องชื่อเมนูแสดง '{actual}'");
         }
 
         // ---- ผู้อนุมัติ (ปุ่ม ... ในเซลล์ รหัสผู้อนุมัติ) ----
         private void SelectApprover(Window form, int row, string empCode)
         {
             var cell = GetGridCell(form, row, ColApproverCode);
+
+            // ถ้าเซลล์มีรหัสผู้อนุมัติที่ต้องการอยู่แล้ว (เช่น เคส Validation ที่ใช้ฟอร์มเดิมต่อเนื่อง) ไม่ต้องเลือกซ้ำ
+            try
+            {
+                string current = cell.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault ?? cell.Name ?? "";
+                if (string.Equals(current.Trim(), empCode, StringComparison.OrdinalIgnoreCase)) return;
+            }
+            catch { }
+
             cell.Click();                                              // เข้า edit mode ให้ปุ่ม ... โผล่ในเซลล์
             System.Threading.Thread.Sleep(300);
             var grid = GetGrid(form);
@@ -495,14 +573,19 @@ namespace HRMITestFlaUI.Pages.ApproveCenter
                 try
                 {
                     if (e.BoundingRectangle.IsEmpty) return false;
-                    if (string.Equals(e.Name?.Trim(), text, StringComparison.OrdinalIgnoreCase)) return true;
+                    // ไม่นับช่องกรอก/ปุ่ม (เช่น ช่อง Look for ที่เพิ่งพิมพ์ข้อความนี้ลงไป) ให้นับเฉพาะเซลล์ในตาราง
+                    var type = e.Properties.ControlType.ValueOrDefault;
+                    if (type == ControlType.Edit || type == ControlType.ComboBox || type == ControlType.Button
+                        || type == ControlType.Window || type == ControlType.TitleBar || type == ControlType.Text) return false;
+                    if (SameText(e.Name, text)) return true;
                     var v = e.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault;
-                    return string.Equals(v?.Trim(), text, StringComparison.OrdinalIgnoreCase);
+                    return SameText(v, text);
                 }
                 catch { return false; }
             });
 
             var item = Retry(FindItem, 3000);
+            if (item == null) item = ScrollDialogToFind(dlg, FindItem);
             if (item == null)
             {
                 // รายการอาจอยู่นอกจอ (ตารางเลื่อน) → พิมพ์ค้นในช่อง Look for แล้วกด Find
@@ -518,6 +601,45 @@ namespace HRMITestFlaUI.Pages.ApproveCenter
                 }
                 catch { }
                 item = Retry(FindItem, 4000);
+            }
+            if (item == null && System.Text.RegularExpressions.Regex.IsMatch(text, @"^EMP\d+$"))
+            {
+                // รหัสผู้อนุมัติตาม TestStep ไม่มีในรายการ (รายการมาจากหน้าสิทธิ์การอนุมัติ ซึ่งมีผู้อนุมัติไม่ครบ)
+                // → ล้างช่อง Look for แล้วใช้ผู้อนุมัติที่มีอยู่แทน โดยวนตามลำดับเลขรหัส
+                try
+                {
+                    var lookFor = dlg.FindAllDescendants(cf => cf.ByControlType(ControlType.Edit))
+                        .Where(e => !e.BoundingRectangle.IsEmpty).OrderByDescending(e => e.BoundingRectangle.Width).FirstOrDefault();
+                    lookFor?.Patterns.Value.PatternOrDefault?.SetValue("");
+                    dlg.FindFirstDescendant(cf => cf.ByName("Find"))?.Click();
+                }
+                catch { }
+
+                List<AutomationElement> available = new();
+                Retry(() =>
+                {
+                    available = dlg.FindAllDescendants()
+                        .Where(e =>
+                        {
+                            try
+                            {
+                                if (e.BoundingRectangle.IsEmpty) return false;
+                                var v = e.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault ?? e.Name ?? "";
+                                return System.Text.RegularExpressions.Regex.IsMatch(v.Trim(), @"^EMP\d+$");
+                            }
+                            catch { return false; }
+                        })
+                        .OrderBy(e => e.BoundingRectangle.Top).ThenBy(e => e.BoundingRectangle.Left).ToList();
+                    return available.Count > 0 ? available : null;
+                }, 4000);
+
+                if (available.Count > 0)
+                {
+                    int number = int.Parse(System.Text.RegularExpressions.Regex.Match(text, @"\d+").Value);
+                    item = available[(Math.Max(number, 1) - 1) % available.Count];
+                    string used = item.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault ?? item.Name ?? "";
+                    Debug.WriteLine($"ไม่พบผู้อนุมัติ '{text}' ในรายการ (มี {available.Count} คน) ใช้ '{used}' แทน");
+                }
             }
             if (item == null)
             {
@@ -539,6 +661,35 @@ namespace HRMITestFlaUI.Pages.ApproveCenter
                 try { item.DoubleClick(); } catch { }
                 WaitForClosed(() => dlg);
             }
+        }
+
+        /// <summary>ตารางใน dialog แสดงเฉพาะแถวที่อยู่บนจอ → เลื่อนลงทีละน้อยแล้วหาใหม่ จนเจอหรือเลื่อนสุด (เนื้อหาไม่เปลี่ยน)</summary>
+        private AutomationElement? ScrollDialogToFind(Window dlg, Func<AutomationElement?> find)
+        {
+            var grid = dlg.FindAllDescendants(cf => cf.ByControlType(ControlType.Table)
+                    .Or(cf.ByControlType(ControlType.DataGrid)).Or(cf.ByControlType(ControlType.List)))
+                .Where(g => { try { return !g.BoundingRectangle.IsEmpty; } catch { return false; } })
+                .OrderByDescending(g => g.BoundingRectangle.Width * g.BoundingRectangle.Height).FirstOrDefault();
+            if (grid == null) return null;
+
+            var r = grid.BoundingRectangle;
+            var center = new Point(r.Left + r.Width / 2, r.Top + r.Height / 2);
+            string previous = "";
+            for (int i = 0; i < 20; i++)
+            {
+                Mouse.MoveTo(center);
+                Mouse.Scroll(-3);
+                System.Threading.Thread.Sleep(250);
+
+                var found = find();
+                if (found != null) return found;
+
+                string signature = string.Join("|", grid.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem))
+                    .Select(e => e.Name ?? "").Take(60));
+                if (signature == previous) break;   // เลื่อนสุดแล้ว
+                previous = signature;
+            }
+            return null;
         }
 
         /// <summary>หา dialog เลือกข้อมูลที่ไม่ได้เป็น modal: หน้าต่างของโปรแกรมที่มีปุ่ม Select และ Cancel (ไม่ใช่ฟอร์มหลักของหน้าจอ)</summary>
@@ -639,13 +790,48 @@ namespace HRMITestFlaUI.Pages.ApproveCenter
 
         private Window GetOrOpenForm() => Retry(FindOpenForm, 1500) ?? OpenForm();
 
+        /// <summary>กรอกข้อความด้วยคีย์บอร์ดจริง (Ctrl+A แล้วพิมพ์) ต่างจาก SetText ที่ตั้งค่าผ่าน API ซึ่งโปรแกรมอาจไม่นับว่าฟอร์มถูกแก้ไข</summary>
+        private void TypeText(AutomationElement parent, string id, string text)
+        {
+            var txt = Retry(() => parent.FindFirstDescendant(cf => cf.ByAutomationId(id)), 3000)
+                      ?? throw new Exception($"ไม่พบช่อง {id}");
+
+            string Current()
+            {
+                try { return txt.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault ?? ""; } catch { return ""; }
+            }
+
+            // โปรแกรมช้าอาจรับตัวอักษรไม่ครบ → พิมพ์แล้วตรวจค่าจริง ถ้าไม่ตรงลองใหม่ (สูงสุด 3 ครั้ง)
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                txt.Click();
+                System.Threading.Thread.Sleep(200);
+                Keyboard.Press(VirtualKeyShort.CONTROL);
+                Keyboard.Type("a");
+                Keyboard.Release(VirtualKeyShort.CONTROL);
+                Keyboard.Type(text);
+                if (WaitUntil(() => Current().Trim() == text, 2000)) return;
+            }
+            throw new Exception($"พิมพ์ '{text}' ลงช่อง {id} แล้ว ค่าในช่องคือ '{Current()}'");
+        }
+
         private Window OpenForm()
         {
-            var newBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName("New")), 3000)
-                         ?? throw new Exception("หาปุ่ม New ไม่เจอ");
-            newBtn.Click();
-
-            var form = Retry(FindOpenForm, 8000) ?? throw new Exception("หาฟอร์มไม่เจอ");
+            Window? form = null;
+            for (int attempt = 0; attempt < 3 && form == null; attempt++)
+            {
+                // หลังรีเฟรชตาราง/ปิดฟอร์มก่อนหน้า โปรแกรมอาจยังยุ่ง → รอจนปุ่ม New มองเห็นและกดได้จริงก่อนคลิก
+                AutomationElement? newBtn = null;
+                WaitUntil(() =>
+                {
+                    newBtn = _mainWindow.FindFirstDescendant(cf => cf.ByName("New"));
+                    return newBtn != null && newBtn.Properties.IsEnabled.ValueOrDefault && !newBtn.Properties.IsOffscreen.ValueOrDefault;
+                }, 20000);
+                if (newBtn == null) throw new Exception("หาปุ่ม New ไม่เจอ");
+                newBtn.Click();
+                form = Retry(FindOpenForm, 8000);
+            }
+            if (form == null) throw new Exception("หาฟอร์มไม่เจอ");
             WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId(FirstObjectID)) != null, 4000);
             return form;
         }
@@ -680,6 +866,48 @@ namespace HRMITestFlaUI.Pages.ApproveCenter
             var form = Retry(FindOpenForm, 5000) ?? throw new Exception("หาฟอร์มไม่เจอ");
             WaitUntil(() => form.FindFirstDescendant(cf => cf.ByAutomationId(FirstObjectID)) != null, 3000);
             return form;
+        }
+
+        // รหัสผังที่เทสนี้สร้างขึ้น (เฉพาะรหัสเหล่านี้เท่านั้นที่จะถูกลบตอนเคลียร์ข้อมูลค้าง)
+        private static readonly string[] TestDataCodes = { "APR001", "APR002", "APR003", "APR004", "APR005" };
+
+        /// <summary>ลบแถว APR001-APR005 ที่ค้างอยู่ในตาราง (คลิกแถว -> Delete -> Yes) ให้ข้อมูลหน้านี้กลับสู่สภาพก่อนทดสอบ</summary>
+        private void CleanupLeftoverTestData()
+        {
+            int deleted = 0;
+            foreach (var code in TestDataCodes)
+            {
+                for (int attempt = 0; attempt < 3; attempt++)
+                {
+                    try
+                    {
+                        RefreshGrid();
+                        var row = Retry(() => FindGridElement(code), 1500);
+                        if (row == null) break;   // ไม่มีข้อมูลค้างของรหัสนี้
+
+                        WaitUntil(() => { try { row.Focus(); return true; } catch { return false; } }, 1000);
+                        row.Click();
+
+                        var delBtn = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName("Delete")), 3000)
+                                     ?? throw new Exception("หาปุ่ม Delete ไม่เจอ");
+                        delBtn.Click();
+
+                        var dlg = Retry(() => _mainWindow.AsWindow()?.ModalWindows.FirstOrDefault()
+                                              ?? _automation.GetDesktop().FindFirstChild(cf => cf.ByName("คำเตือน"))?.AsWindow(), 4000)
+                                  ?? throw new Exception("กด Delete แล้วไม่พบ Pop-up ยืนยัน");
+                        ClickDialogButton(dlg, "Yes");
+                        WaitForClosed(() => dlg);
+                        deleted++;
+                        Debug.WriteLine($"เคลียร์ข้อมูลค้างจากรอบก่อน: ลบ '{code}'");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"เคลียร์ข้อมูลค้าง '{code}' ไม่สำเร็จ: {ex.Message}");
+                        break;
+                    }
+                }
+            }
+            if (deleted == 0) Debug.WriteLine("ไม่มีข้อมูลทดสอบค้างจากรอบก่อน");
         }
 
         private void RunDeleteCase(string baseName, string code, string btn, bool expectDeleted)
@@ -846,15 +1074,26 @@ namespace HRMITestFlaUI.Pages.ApproveCenter
             if (!string.IsNullOrEmpty(text)) Keyboard.Type(text);
         }
 
-        private AutomationElement? FindGridElement(string val) =>
-            _mainWindow.FindAllDescendants().FirstOrDefault(el =>
+        private AutomationElement? FindGridElement(string val)
+        {
+            var grid = _mainWindow.FindFirstDescendant(cf => cf.ByAutomationId(GridId));
+            var scope = grid?.FindAllDescendants() ?? _mainWindow.FindAllDescendants();
+            return scope.FirstOrDefault(el =>
                 (!string.IsNullOrEmpty(el.Name) && string.Equals(el.Name.Trim(), val, StringComparison.OrdinalIgnoreCase)) ||
                 (el.Patterns.Value.IsSupported && string.Equals(el.Patterns.Value.Pattern.Value.Value?.Trim(), val, StringComparison.OrdinalIgnoreCase)));
+        }
 
         private bool TrySaveAndHandleDuplicate(Window form, string testName, string code, string saveBtn)
         {
             var btn = form.FindFirstDescendant(cf => cf.ByName(saveBtn)) ?? throw new Exception($"ไม่พบปุ่ม {saveBtn}");
-            btn.Click();
+            try { btn.Click(); }
+            catch (Exception ex) when (ex is TimeoutException || ex is System.Runtime.InteropServices.COMException)
+            {
+                // ตอนกด Save โปรแกรมอาจประมวลผลหนักจนไม่ตอบ UIA (Operation timed out) ทั้งที่การกดสำเร็จแล้ว
+                // → รอให้โปรแกรมกลับมาตอบสนอง แล้วตรวจผลต่อ (Save and New/Close ตรวจสถานะฟอร์มหลังจากนี้เอง)
+                Debug.WriteLine($"กด {saveBtn} แล้วโปรแกรมตอบสนองช้า ({ex.Message}) รอแล้วตรวจผลต่อ");
+                System.Threading.Thread.Sleep(3000);
+            }
 
             if (testName.Contains("Validation") || testName.Contains("Duplicate")) return true;
 

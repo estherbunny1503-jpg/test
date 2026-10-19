@@ -471,6 +471,8 @@ namespace HRMITestFlaUI.Base
 
             var desktop = automation.GetDesktop();
             var sw = Stopwatch.StartNew();
+            var overall = Stopwatch.StartNew();                       // เพดานรวมเมื่อต้องรอ splash โหลดโปรแกรม
+            var maxSplashWait = TimeSpan.FromMinutes(5);
 
             while (sw.Elapsed < PopupTotalWaitTimeout)
             {
@@ -524,6 +526,20 @@ namespace HRMITestFlaUI.Base
                     var hrmiProcess = Process.GetProcessesByName(ProcessName).FirstOrDefault();
                     if (hrmiProcess != null)
                     {
+                        // หลัง login โปรแกรมแสดง frmSplash ระหว่างโหลดข้อมูล (เครื่องช้าอาจเกิน 60 วินาที)
+                        // ตราบที่ splash ยังเปิดอยู่ ถือว่ายังโหลดอยู่ ไม่ใช่ login ล้มเหลว → ต่อเวลารอ (สูงสุด 5 นาที)
+                        bool splashShowing = FindHrmiWindows(hrmiProcess.Id).Any(w =>
+                        {
+                            try
+                            {
+                                return IsVisibleWindow(w) &&
+                                       ((w.Title ?? "").Contains("splash", StringComparison.OrdinalIgnoreCase)
+                                        || (w.AutomationId ?? "").Contains("splash", StringComparison.OrdinalIgnoreCase));
+                            }
+                            catch { return false; }
+                        });
+                        if (splashShowing && overall.Elapsed < maxSplashWait) sw.Restart();
+
                         var appWindow = FindHrmiWindows(hrmiProcess.Id)
                             .FirstOrDefault(w => IsVisibleWindow(w) && IsMainApplicationWindow(w));
                         if (appWindow != null)

@@ -57,14 +57,20 @@ namespace HRMITestFlaUI.Base
         [TestMethod]
         public void Test01_PrivilegetoApproveInfoUC()
             => RunPage(1, "PrivilegetoApproveInfo", "บันทึกสิทธิ์การอนุมัติ",
-                privilegetoApproveInfoUC.NavigateToPrivilegetoApproveInfoUC, privilegetoApproveInfoUC.RunAllValidationTests,
-                privilegetoApproveInfoUC.RunEditTests, privilegetoApproveInfoUC.RunEditValidationTests, privilegetoApproveInfoUC.RunDeleteTests);
+                privilegetoApproveInfoUC.NavigateToPrivilegetoApproveInfoUC,
+                privilegetoApproveInfoUC.RunAllValidationTests,
+                privilegetoApproveInfoUC.RunEditTests,
+                privilegetoApproveInfoUC.RunEditValidationTests,
+                privilegetoApproveInfoUC.RunDeleteTests);
 
         [TestMethod]
         public void Test02_ApproveLevelInfoUC()
             => RunPage(2, "ApproveLevelInfo", "บันทึกลำดับขั้นการอนุมัติ",
-                approveLevelInfoUC.NavigateToApproveLevelInfoUC, approveLevelInfoUC.RunAllValidationTests,
-                approveLevelInfoUC.RunEditTests, approveLevelInfoUC.RunEditValidationTests, approveLevelInfoUC.RunDeleteTests);
+                approveLevelInfoUC.NavigateToApproveLevelInfoUC,
+                approveLevelInfoUC.RunAllValidationTests,
+                approveLevelInfoUC.RunEditTests,
+                approveLevelInfoUC.RunEditValidationTests,
+                approveLevelInfoUC.RunDeleteTests);
 
         // -------------------------------------------------------------
         // Engine กลางสำหรับรันขั้นตอนมาตรฐานของแต่ละหน้า
@@ -202,6 +208,7 @@ namespace HRMITestFlaUI.Base
                     var winRect = mainWindow.BoundingRectangle;
                     int findBtnX = (int)winRect.Left + 135;
                     int findBtnY = (int)winRect.Top + 68;
+
                     Mouse.MoveTo(new Point(findBtnX, findBtnY));
                     Thread.Sleep(60);
                     Mouse.Click(MouseButton.Left);
@@ -246,7 +253,7 @@ namespace HRMITestFlaUI.Base
 
                     // 2) คลิกปุ่ม Close All ทันทีเพื่อปิดแท็บหน้างานทั้งหมด
                     var btnCloseAll = mainWindow.FindFirstDescendant(cf => cf.ByAutomationId(IdBtnCloseAllPage).Or(cf.ByName("Close All")))
-                                      ?? automation.GetDesktop().FindFirstDescendant(cf => cf.ByAutomationId(IdBtnCloseAllPage).Or(cf.ByName("Close All")));
+                                       ?? automation.GetDesktop().FindFirstDescendant(cf => cf.ByAutomationId(IdBtnCloseAllPage).Or(cf.ByName("Close All")));
 
                     if (btnCloseAll != null && btnCloseAll.Properties.IsEnabled.ValueOrDefault)
                     {
@@ -257,7 +264,7 @@ namespace HRMITestFlaUI.Base
 
                     // 3) ถ้าหาปุ่มไม่พบ ให้คลิกด้วยพิกัดขวาล่างของ Popup
                     var chkPageList = mainWindow.FindFirstDescendant(cf => cf.ByAutomationId(IdChkPageList))
-                                      ?? automation.GetDesktop().FindFirstDescendant(cf => cf.ByAutomationId(IdChkPageList));
+                                       ?? automation.GetDesktop().FindFirstDescendant(cf => cf.ByAutomationId(IdChkPageList));
 
                     if (chkPageList != null)
                     {
