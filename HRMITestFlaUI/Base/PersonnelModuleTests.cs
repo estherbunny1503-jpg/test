@@ -41,7 +41,7 @@ namespace HRMITestFlaUI.Base
                 // เปิดโปรแกรม + Login (ช่วง 0% - 10%)
                 ClassSetUpWithLogin("admin", "");
 
-                // ผูก Page Objects ทั้ง 5 หน้าจอตามลำดับ
+                // ผูก Page Objects ทั้ง 5 หน้าจอ (EmpCardInfoUC เป็นลำดับแรก)
                 empCardInfoUC = new EmpCardInfoUC(mainWindow, automation);
                 empInfoUC = new EmpInfoUC(mainWindow, automation);
                 promoteInfoUC = new PromoteInfoUC(mainWindow, automation);
@@ -58,7 +58,7 @@ namespace HRMITestFlaUI.Base
         public static void SuiteTearDown() => ClassTearDown();
 
         // -------------------------------------------------------------
-        // เรียงลำดับ 5 หน้าจอตามที่กำหนด
+        // เรียงลำดับ 5 หน้าจอตามตาราง
         // -------------------------------------------------------------
         [TestMethod]
         public void Test01_EmpCardInfoUC()
@@ -74,28 +74,21 @@ namespace HRMITestFlaUI.Base
 
         [TestMethod]
         public void Test03_PromoteInfoUC()
-          => RunPage(3, "PromoteInfo", "บันทึกปรับตำแหน่งและเงินเดือน",
-                 promoteInfoUC.NavigateToPromoteInfoUC, promoteInfoUC.RunAllValidationTests,
-                 promoteInfoUC.RunEditTests, promoteInfoUC.RunEditValidationTests,
-                 promoteInfoUC.RunDeleteTests);
+            => RunPage(3, "PromoteInfo", "บันทึกปรับตำแหน่งและเงินเดือน",
+                promoteInfoUC.NavigateToPromoteInfoUC, promoteInfoUC.RunAllValidationTests,
+                promoteInfoUC.RunEditTests, promoteInfoUC.RunEditValidationTests, promoteInfoUC.RunDeleteTests);
 
         [TestMethod]
         public void Test04_ResignationInfoUC()
             => RunPage(4, "ResignationInfo", "บันทึกพ้นสภาพความเป็นพนักงาน",
-                resignationInfoUC.NavigateToResignationInfoUC,
-                resignationInfoUC.RunAllValidationTests,
-                resignationInfoUC.RunEditTests,
-                resignationInfoUC.RunEditValidationTests,
-                resignationInfoUC.RunDeleteTests);
+                resignationInfoUC.NavigateToResignationInfoUC, resignationInfoUC.RunAllValidationTests,
+                resignationInfoUC.RunEditTests, resignationInfoUC.RunEditValidationTests, resignationInfoUC.RunDeleteTests);
 
         [TestMethod]
         public void Test05_EmployeeWelfareFundRateInfoUC()
             => RunPage(5, "EmployeeWelfareFundRateInfo", "บันทึกอัตราหักกองทุนสงเคราะห์ลูกจ้าง",
-                employeeWelfareFundRateInfoUC.NavigateToEmployeeWelfareFundRateInfoUC,
-                employeeWelfareFundRateInfoUC.RunAllValidationTests,
-                employeeWelfareFundRateInfoUC.RunEditTests,
-                employeeWelfareFundRateInfoUC.RunEditValidationTests,
-                employeeWelfareFundRateInfoUC.RunDeleteTests);
+                employeeWelfareFundRateInfoUC.NavigateToEmployeeWelfareFundRateInfoUC, employeeWelfareFundRateInfoUC.RunAllValidationTests,
+                employeeWelfareFundRateInfoUC.RunEditTests, employeeWelfareFundRateInfoUC.RunEditValidationTests, employeeWelfareFundRateInfoUC.RunDeleteTests);
 
         // -------------------------------------------------------------
         // Engine กลางสำหรับรันขั้นตอนมาตรฐานของแต่ละหน้า
@@ -177,6 +170,7 @@ namespace HRMITestFlaUI.Base
                 }
 
                 // 2. เคลียร์ระดับ Keyboard ซ้ำเพื่อกระตุ้น Event และล้างตัวอักษรตกค้าง
+                // โฟกัสไปท้ายสุด แล้วคลุมดำกลับมาหน้าสุด
                 Keyboard.Press(VirtualKeyShort.END);
                 Keyboard.Release(VirtualKeyShort.END);
                 Thread.Sleep(50);
@@ -191,7 +185,7 @@ namespace HRMITestFlaUI.Base
                 Keyboard.Release(VirtualKeyShort.DELETE);
                 Thread.Sleep(50);
 
-                // กรณีภาษาไทยค้างหรือมีข้อความยาว ใช้ Ctrl + A
+                // กรณีภาษาไทยค้างหรือมีข้อความยาว ใช้ Ctrl + A เผื่อกรณี Shift+Home ไม่คลุมทั้งหมด
                 Keyboard.Press(VirtualKeyShort.CONTROL);
                 Keyboard.Press(VirtualKeyShort.KEY_A);
                 Keyboard.Release(VirtualKeyShort.KEY_A);
@@ -209,7 +203,7 @@ namespace HRMITestFlaUI.Base
                     Keyboard.Release(VirtualKeyShort.BACK);
                 }
 
-                // กด Enter เพื่อให้ DataSource/Grid Filter รีเซ็ตค่าว่าง
+                // กด Enter เบาๆ เพื่อให้ DataSource/Grid Filter รีเซ็ตค่าว่าง
                 Keyboard.Press(VirtualKeyShort.RETURN);
                 Keyboard.Release(VirtualKeyShort.RETURN);
                 Thread.Sleep(100);

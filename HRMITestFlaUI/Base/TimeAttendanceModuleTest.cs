@@ -14,10 +14,6 @@ namespace HRMITestFlaUI.Base
     [TestClass]
     public class TimeAttendanceModuleTests : BaseTest
     {
-        // =========================================================================================
-        // หมวดที่ 1: Automation IDs และ Page Objects ของโมดูล
-        // =========================================================================================
-
         // ── Automation IDs ของระบบจัดการแท็บหน้าจอ ──
         private const string IdBtnPageList = "devBtnPageList";
         private const string IdChkPageList = "devChkPageList";
@@ -35,10 +31,6 @@ namespace HRMITestFlaUI.Base
         private const int TotalScreensInTimeAttendance = 6;
         private const int BetweenStepDelayMs = 2000;
 
-        // =========================================================================================
-        // หมวดที่ 2: เตรียมและปิดชุดทดสอบ
-        // =========================================================================================
-
         [ClassInitialize]
         public static void SuiteSetUp(TestContext context)
         {
@@ -46,9 +38,7 @@ namespace HRMITestFlaUI.Base
 
             try
             {
-                // เปิดโปรแกรม + Login (ช่วง 0% - 10%)
-                // Respect User_Login and Password from test_config.txt so environments that
-                // no longer use the default blank admin password can still sign in.
+                // เปิดโปรแกรม + Login (ช่วง 0% - 10%) ใช้ค่า User_Login/Password จาก test_config.txt
                 ClassSetUpWithLogin();
 
                 // ผูก Page Objects ทั้ง 6 หน้าจอ (EmpWorkScheListUC เป็นลำดับแรก)
@@ -68,10 +58,9 @@ namespace HRMITestFlaUI.Base
         [ClassCleanup]
         public static void SuiteTearDown() => ClassTearDown();
 
-        // =========================================================================================
-        // หมวดที่ 3: Test Cases เรียงตาม TestStep
-        // =========================================================================================
-
+        // -------------------------------------------------------------
+        // เรียงลำดับ 6 หน้าจอตามตาราง
+        // -------------------------------------------------------------
         [TestMethod]
         public void Test01_EmpWorkScheListUC()
             => RunPage(1, "EmpWorkScheList", "บันทึกรูปแบบตารางการทำงาน",
@@ -102,10 +91,10 @@ namespace HRMITestFlaUI.Base
             => RunPage(6, "PPprocessTreeWin", "ประมวลผลจากระบบเวลาเข้าสู่ระบบเงินเดือน (แบบแจกแจง)",
                 frmPPprocessTreeWinUC.NavigateToPPprocessTreeWinUC, frmPPprocessTreeWinUC.RunAllValidationTests);
 
-        // =========================================================================================
-        // หมวดที่ 4: Engine กลางและ Helpers ของชุดทดสอบ
-        // =========================================================================================
-
+        // -------------------------------------------------------------
+        // Engine กลางสำหรับรันขั้นตอนมาตรฐานของแต่ละหน้า
+        // (หน้าจอในโมดูลนี้ไม่มี Edit/Delete จึงให้เป็น null และข้ามขั้นตอนนั้น)
+        // -------------------------------------------------------------
         private static void RunPage(
             int screenIndex,
             string logContext,
@@ -124,7 +113,6 @@ namespace HRMITestFlaUI.Base
             CloseAnyLingeringWindow();
             ClearSearchBox();
 
-            // หน้าจอในโมดูลนี้ส่วนใหญ่เป็น Wizard/ประมวลผล มีแค่ Navigate + RunAllValidationTests → ขั้นตอนที่เป็น null จะถูกข้าม
             Action?[] steps = { navigateAndNew, validation, edit, editValidation, delete };
             foreach (var step in steps)
             {

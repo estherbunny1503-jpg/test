@@ -24,8 +24,10 @@ namespace HRMITestFlaUI.Base
         // ── กำหนดค่าเริ่มต้นเป็น null! เพื่อตัด Warning CS8602 ──
         private static PrivilegetoApproveInfoUC privilegetoApproveInfoUC = null!;
         private static ApproveLevelInfoUC approveLevelInfoUC = null!;
+        private static LeaveRequestInfoUC leaveRequestInfoUC = null!;
+        private static RequestOTInfoUC requestOTInfoUC = null!;
 
-        private const int TotalScreensInApproveCenter = 2;
+        private const int TotalScreensInApproveCenter = 4;
         private const int BetweenStepDelayMs = 2000;
 
         [ClassInitialize]
@@ -38,9 +40,11 @@ namespace HRMITestFlaUI.Base
                 // เปิดโปรแกรม + Login (ช่วง 0% - 10%)
                 ClassSetUpWithLogin("admin", "");
 
-                // ผูก Page Objects ของโมดูล Approve Center
+                // ผูก Page Objects ทั้ง 4 หน้าจอ (PrivilegetoApproveInfoUC เป็นลำดับแรก)
                 privilegetoApproveInfoUC = new PrivilegetoApproveInfoUC(mainWindow, automation);
                 approveLevelInfoUC = new ApproveLevelInfoUC(mainWindow, automation);
+                leaveRequestInfoUC = new LeaveRequestInfoUC(mainWindow, automation);
+                requestOTInfoUC = new RequestOTInfoUC(mainWindow, automation);
             }
             catch (Exception ex)
             {
@@ -52,25 +56,31 @@ namespace HRMITestFlaUI.Base
         public static void SuiteTearDown() => ClassTearDown();
 
         // -------------------------------------------------------------
-        // เรียงลำดับหน้าจอตามตาราง
+        // เรียงลำดับ 4 หน้าจอตามตาราง
         // -------------------------------------------------------------
         [TestMethod]
         public void Test01_PrivilegetoApproveInfoUC()
             => RunPage(1, "PrivilegetoApproveInfo", "บันทึกสิทธิ์การอนุมัติ",
-                privilegetoApproveInfoUC.NavigateToPrivilegetoApproveInfoUC,
-                privilegetoApproveInfoUC.RunAllValidationTests,
-                privilegetoApproveInfoUC.RunEditTests,
-                privilegetoApproveInfoUC.RunEditValidationTests,
-                privilegetoApproveInfoUC.RunDeleteTests);
+                privilegetoApproveInfoUC.NavigateToPrivilegetoApproveInfoUC, privilegetoApproveInfoUC.RunAllValidationTests,
+                privilegetoApproveInfoUC.RunEditTests, privilegetoApproveInfoUC.RunEditValidationTests, privilegetoApproveInfoUC.RunDeleteTests);
 
         [TestMethod]
         public void Test02_ApproveLevelInfoUC()
             => RunPage(2, "ApproveLevelInfo", "บันทึกลำดับขั้นการอนุมัติ",
-                approveLevelInfoUC.NavigateToApproveLevelInfoUC,
-                approveLevelInfoUC.RunAllValidationTests,
-                approveLevelInfoUC.RunEditTests,
-                approveLevelInfoUC.RunEditValidationTests,
-                approveLevelInfoUC.RunDeleteTests);
+                approveLevelInfoUC.NavigateToApproveLevelInfoUC, approveLevelInfoUC.RunAllValidationTests,
+                approveLevelInfoUC.RunEditTests, approveLevelInfoUC.RunEditValidationTests, approveLevelInfoUC.RunDeleteTests);
+
+        [TestMethod]
+        public void Test03_LeaveRequestInfoUC()
+            => RunPage(3, "LeaveRequestInfo", "บันทึกขออนุมัติลา",
+                leaveRequestInfoUC.NavigateToLeaveRequestInfoUC, leaveRequestInfoUC.RunAllValidationTests,
+                leaveRequestInfoUC.RunEditTests, leaveRequestInfoUC.RunEditValidationTests, leaveRequestInfoUC.RunDeleteTests);
+
+        [TestMethod]
+        public void Test04_RequestOTInfoUC()
+            => RunPage(4, "RequestOTInfo", "บันทึกขออนุมัติทำงานล่วงเวลา",
+                requestOTInfoUC.NavigateToRequestOTInfoUC, requestOTInfoUC.RunAllValidationTests,
+                requestOTInfoUC.RunEditTests, requestOTInfoUC.RunEditValidationTests, requestOTInfoUC.RunDeleteTests);
 
         // -------------------------------------------------------------
         // Engine กลางสำหรับรันขั้นตอนมาตรฐานของแต่ละหน้า
@@ -208,7 +218,6 @@ namespace HRMITestFlaUI.Base
                     var winRect = mainWindow.BoundingRectangle;
                     int findBtnX = (int)winRect.Left + 135;
                     int findBtnY = (int)winRect.Top + 68;
-
                     Mouse.MoveTo(new Point(findBtnX, findBtnY));
                     Thread.Sleep(60);
                     Mouse.Click(MouseButton.Left);
@@ -229,7 +238,7 @@ namespace HRMITestFlaUI.Base
                 {
                     foreach (var m in modals)
                     {
-                        var closeBtn = m.FindFirstDescendant(cf => cf.ByName("Close").Or(cf.ByAutomationId("Close")));
+                        var closeBtn = m.FindFirstDescendant(cf => cf.ByName("Close") ?? cf.ByAutomationId("Close"));
                         closeBtn?.Click();
                         Thread.Sleep(300);
                     }
@@ -253,7 +262,7 @@ namespace HRMITestFlaUI.Base
 
                     // 2) คลิกปุ่ม Close All ทันทีเพื่อปิดแท็บหน้างานทั้งหมด
                     var btnCloseAll = mainWindow.FindFirstDescendant(cf => cf.ByAutomationId(IdBtnCloseAllPage).Or(cf.ByName("Close All")))
-                                       ?? automation.GetDesktop().FindFirstDescendant(cf => cf.ByAutomationId(IdBtnCloseAllPage).Or(cf.ByName("Close All")));
+                                      ?? automation.GetDesktop().FindFirstDescendant(cf => cf.ByAutomationId(IdBtnCloseAllPage).Or(cf.ByName("Close All")));
 
                     if (btnCloseAll != null && btnCloseAll.Properties.IsEnabled.ValueOrDefault)
                     {
@@ -264,7 +273,7 @@ namespace HRMITestFlaUI.Base
 
                     // 3) ถ้าหาปุ่มไม่พบ ให้คลิกด้วยพิกัดขวาล่างของ Popup
                     var chkPageList = mainWindow.FindFirstDescendant(cf => cf.ByAutomationId(IdChkPageList))
-                                       ?? automation.GetDesktop().FindFirstDescendant(cf => cf.ByAutomationId(IdChkPageList));
+                                      ?? automation.GetDesktop().FindFirstDescendant(cf => cf.ByAutomationId(IdChkPageList));
 
                     if (chkPageList != null)
                     {
@@ -280,7 +289,6 @@ namespace HRMITestFlaUI.Base
                     }
 
                     Keyboard.Press(VirtualKeyShort.ESCAPE);
-                    Keyboard.Release(VirtualKeyShort.ESCAPE);
                     Thread.Sleep(200);
                 }
 

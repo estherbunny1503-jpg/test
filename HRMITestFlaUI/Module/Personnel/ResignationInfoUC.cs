@@ -10,7 +10,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 
-namespace HRMITestFlaUI.Pages.Personnel
+namespace HRMITestFlaUI.Module.Personnel
 {
     public class ResignationInfoUC
     {
@@ -59,6 +59,9 @@ namespace HRMITestFlaUI.Pages.Personnel
             int Progress,
             string ProgressMsg);
 
+        // ค่าพิเศษของ EmpCode: เลือกพนักงานคนแรกที่ยังเลือกได้ใน Pop-up (Pop-up ไม่แสดงพนักงานที่มีเอกสารพ้นสภาพแล้ว)
+        private const string AnyEmployee = "*";
+
         // ข้อความแจ้งเตือนที่คาดหวัง
         private const string WarnMissingReason = "เหตุผล ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล";
         private const string WarnMissingEmployee = "พนักงาน ไม่สามารถเป็นค่าว่าง กรุณาป้อนข้อมูล";
@@ -67,31 +70,35 @@ namespace HRMITestFlaUI.Pages.Personnel
         // [ขั้นที่ 1] ข้อมูลทดสอบการสร้างใหม่ (Add / Navigate)
         private static readonly AddItem[] Step1_AddCases =
         {
-            new("01/08/2570", "01/09/2570", "31/08/2570", "ลาออก", "ไม่ผ่านการทดลองงาน", "EMP00001",
+            // แถว 7: Save แล้วกด Close
+            new("31/08/2569", "01/09/2569", "31/08/2569", "ลาออก", "ไม่ผ่านการทดลองงาน", "EMP00008",
                 CalcLastPayment: null, CalcMonthSalary: false, CalcByWorkedDays: null, CalcIncomeNotLastPeriod: null,
-                CalcIncomeLastPeriod: null, CalcIncomeOccasional: false, IncomeOccasionalAtDate: "31/08/2570", SocialInsuranceNextPeriod: false,
+                CalcIncomeLastPeriod: null, CalcIncomeOccasional: false, IncomeOccasionalAtDate: "31/08/2569", SocialInsuranceNextPeriod: false,
                 SaveBtn: "Save", NeedsManualClose: true),
 
-            new("02/06/2570", "01/07/2570", "30/06/2570", "เลิกจ้าง", "เนื่องจากต้องโทษทางวินัย", "EMP00002",
+            // แถว 8: Save and New
+            new("02/06/2569", "01/07/2569", "30/06/2569", "เลิกจ้าง", "เนื่องจากต้องโทษทางวินัย", "EMP00009",
                 CalcLastPayment: false, CalcMonthSalary: null, CalcByWorkedDays: null, CalcIncomeNotLastPeriod: null,
-                CalcIncomeLastPeriod: null, CalcIncomeOccasional: null, IncomeOccasionalAtDate: "30/06/2570", SocialInsuranceNextPeriod: null,
+                CalcIncomeLastPeriod: null, CalcIncomeOccasional: null, IncomeOccasionalAtDate: null, SocialInsuranceNextPeriod: null,
                 SaveBtn: "Save and New", NeedsManualClose: false),
 
-            new("05/05/2570", "01/06/2570", "31/05/2570", "ถูกให้ออกหรือไล่ออก", "กระทำความผิดทางอาญาโดยเจตนาแก่นายจ้าง", "EMP00003",
+            // แถว 9: Save and New
+            new("05/05/2569", "01/06/2569", "31/05/2569", "ถูกให้ออกหรือไล่ออก", "กระทำความผิดทางอาญาโดยเจตนาแก่นายจ้าง", "EMP00010",
                 CalcLastPayment: null, CalcMonthSalary: null, CalcByWorkedDays: null, CalcIncomeNotLastPeriod: null,
-                CalcIncomeLastPeriod: null, CalcIncomeOccasional: false, IncomeOccasionalAtDate: "31/05/2570", SocialInsuranceNextPeriod: false,
+                CalcIncomeLastPeriod: null, CalcIncomeOccasional: false, IncomeOccasionalAtDate: "31/05/2569", SocialInsuranceNextPeriod: false,
                 SaveBtn: "Save and New", NeedsManualClose: false),
 
-            new("31/05/2570", "01/06/2570", "31/05/2570", "ถึงแก่กรรม", "สิ้นสุดระยะเวลาการจ้างงาน", "EMP00004",
+            // แถว 10: Save and Close (ไม่ติ๊กทุกช่อง, กรอกวันที่ 29/06/2569)
+            new("31/05/2569", "30/06/2569", "29/06/2569", "ถึงแก่กรรม", "สิ้นสุดระยะเวลาการจ้างงาน", "EMP00011",
                 CalcLastPayment: false, CalcMonthSalary: false, CalcByWorkedDays: false, CalcIncomeNotLastPeriod: false,
-                CalcIncomeLastPeriod: false, CalcIncomeOccasional: true, IncomeOccasionalAtDate: "01/06/2570", SocialInsuranceNextPeriod: false,
+                CalcIncomeLastPeriod: false, CalcIncomeOccasional: false, IncomeOccasionalAtDate: "29/06/2569", SocialInsuranceNextPeriod: false,
                 SaveBtn: "Save and Close", NeedsManualClose: false)
         };
 
         // [ขั้นที่ 2] ข้อมูลทดสอบ Validation ตอนเพิ่ม (Add Validation)
         private static readonly ValidationItem[] Step2_AddValidationCases =
         {
-            new("TestCase01_MissingReason", false, null, "EP0005", "Save", 27,
+            new("TestCase01_MissingReason", false, null, AnyEmployee, "Save", 27,
                 "Validating: Missing Reason...", new[] { WarnMissingReason }),
 
             new("TestCase02_MissingEmployee", false, "ไม่ผ่านการทดลองงาน", "", "Save and New", 33,
@@ -101,17 +108,17 @@ namespace HRMITestFlaUI.Pages.Personnel
         // [ขั้นที่ 3] ข้อมูลทดสอบการแก้ไขข้อมูล (Edit Records)
         private static readonly EditItem[] Step3_EditCases =
         {
-            // EMP00001 -> ติ๊ก "นำส่งเงินสมทบประกันสังคมในงวดถัดไป" -> Save -> Close
+            // EMP00008 -> ติ๊ก "นำส่งเงินสมทบประกันสังคมในงวดถัดไป" -> Save -> Close
             new(
-                "TestCase08_EditEmp001",
-                "EMP00001",
+                "TestCase08_EditEmp008",
+                "EMP00008",
                 ChkSocialInsuranceFieldId,
                 "Save",
                 true),
-            // EMP00002 -> ติ๊ก "คำนวณค่าจ้างงวดสุดท้าย" -> Save and Close
+            // EMP00009 -> ติ๊ก "คำนวณค่าจ้างงวดสุดท้าย" -> Save and Close
             new(
-                "TestCase09_EditEmp002",
-                "EMP00002",
+                "TestCase09_EditEmp009",
+                "EMP00009",
                 ChkCalcLastPaymentFieldId,
                 "Save and Close",
                 false)
@@ -127,8 +134,8 @@ namespace HRMITestFlaUI.Pages.Personnel
         // [ขั้นที่ 5] ข้อมูลทดสอบการลบข้อมูล (Delete Records)
         private static readonly DeleteItem[] Step5_DeleteCases =
         {
-            new("EMP00001", "Yes", true, 92, "Delete Test: EMP00001 (confirmed delete)..."),
-            new("EMP00004", "No", false, 100, "Delete Test: EMP00004 (cancelled delete)...")
+            new("EMP00011", "Yes", true, 92, "Delete Test: EMP00011 (confirmed delete)..."),
+            new("EMP00010", "No", false, 100, "Delete Test: EMP00010 (cancelled delete)...")
         };
 
 
@@ -172,10 +179,9 @@ namespace HRMITestFlaUI.Pages.Personnel
         {
             const string stageName = "TestCase00_AddResignationInfo";
             TestLogger.LogInfo(ScreenLogName, $"เริ่มทดสอบหน้าจอ {MenuName}");
-            TestProgressHelper.Report(2, $"Opening Personnel -> {MenuName} Menu...");
+            TestProgressHelper.Report(2, $"Opening Personnel -> {MenuName} Menu via Search...");
 
-            // เฉพาะหน้าจอนี้: TestStep ให้เปิดผ่านเมนูหลัก Personnel (ไม่ใช่ช่องค้นหา)
-            if (!TryOpenScreenMenu(stageName)) return;
+            if (!TryOpenMenu(stageName, MenuName)) return;
 
             Window? form = null;
             for (int i = 0; i < Step1_AddCases.Length; i++)
@@ -377,7 +383,7 @@ namespace HRMITestFlaUI.Pages.Personnel
             if (tc.EmpCode == "") ClearField(form, EmployeeFieldId);
             else if (tc.EmpCode != null) SelectEmployee(form, tc.EmpCode);
             form.FindFirstDescendant(cf => cf.ByName(tc.SaveBtn))?.Click();
-            AssertScreenTaskResult(form, tc.ExpectedErrors, testName);
+            AssertTaskResult(form, tc.ExpectedErrors, testName);
         }
 
         private static string? DetectDuplicateMessage(IEnumerable<string> texts)
@@ -399,42 +405,6 @@ namespace HRMITestFlaUI.Pages.Personnel
             _automation.GetDesktop().FindFirstChild(cf => cf.ByAutomationId(FormId))?.AsWindow();
 
         // --- การเปิดหน้าจอ / ฟอร์ม เฉพาะหน้าจอนี้ ---
-
-        /* เปิดหน้าจอผ่านเมนูหลัก Personnel แล้วคลิกแถวเมนูของหน้าจอนี้ (ถ้าแถวยังไม่แสดงจะเลื่อน Line Down ทีละขั้นจนเจอ) */
-        private bool TryOpenScreenMenu(string stage)
-        {
-            try
-            {
-                var personnelTab = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName("Personnel")), 3000)
-                                   ?? throw new Exception("หาเมนูหลัก Personnel ไม่เจอ");
-                ClickByMouse(personnelTab);
-
-                var menuRow = Retry(FindMenuRow, 2000);
-                var lineDown = _mainWindow.FindFirstDescendant(cf => cf.ByName("Line Down"));
-                for (int step = 0; menuRow == null && lineDown != null && step < 10; step++)
-                {
-                    ClickByMouse(lineDown);
-                    menuRow = Retry(FindMenuRow, 500);
-                }
-                menuRow ??= Retry(FindMenuRow, 3000) ?? throw new Exception($"หาเมนู '{MenuName}' ไม่เจอ");
-                ClickByMouse(menuRow);
-
-                var btnNew = Retry(() => _mainWindow.FindFirstDescendant(cf => cf.ByName("New")), 6000)
-                             ?? throw new Exception("เปิดหน้าจอแล้วไม่พบปุ่ม New");
-                WaitUntil(() => btnNew.Properties.IsEnabled.ValueOrDefault, 3000);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                LogFailure(stage, $"เปิดเมนูไม่สำเร็จ: {ex.Message}");
-                return false;
-            }
-        }
-
-        /* หาแถวเมนูของหน้าจอนี้ในแผงเมนู Personnel */
-        private AutomationElement? FindMenuRow() =>
-            _mainWindow.FindFirstDescendant(cf => cf.ByName("treeListColumn row 10"))
-            ?? _mainWindow.FindFirstDescendant(cf => cf.ByName(MenuName));
 
         /* เปิดฟอร์ม Edit จากแถวแรกของตารางหลัก */
         private Window ClickFirstRowAndOpenEdit()
@@ -476,55 +446,7 @@ namespace HRMITestFlaUI.Pages.Personnel
             if (info != null && ok != null) { ok.Click(); WaitForClosed(() => info); }
         }
 
-        // --- การกรอกข้อมูลเฉพาะหน้าจอนี้ ---
-
-        /* กรอกช่องวันที่ (คลิก → ลบค่าเดิม → พิมพ์ → Tab) ค่าว่าง = เคลียร์ช่อง */
-        private void SetDate(AutomationElement scope, string id, string dateText)
-        {
-            var el = Retry(() => scope.FindFirstDescendant(cf => cf.ByAutomationId(id)), 3000) ?? throw new Exception($"ไม่พบช่องวันที่ {id}");
-            if (!WaitUntil(() => el.Properties.IsEnabled.ValueOrDefault, 3000)) throw new Exception($"ช่องวันที่ '{id}' ยัง disabled อยู่");
-            TypeByKeyboard(el, dateText, extraBackspace: true);
-        }
-
-        /* เคลียร์ค่าในช่อง (เลขที่เอกสาร / พนักงาน) ด้วยคีย์บอร์ด */
-        private void ClearField(Window form, string id)
-        {
-            var el = Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(id)), 5000) ?? throw new Exception($"หาช่อง '{id}' ไม่เจอ");
-            if (!WaitUntil(() => el.Properties.IsEnabled.ValueOrDefault, 3000)) return;
-            TypeByKeyboard(el, "", extraBackspace: true);
-            WaitUntil(() => ReadText(el) == "", 2000);
-        }
-
-        /* พิมพ์ลงช่องด้วยคีย์บอร์ดจริง (คลิกฝั่งซ้ายของช่อง กันโดนปุ่มที่ขอบขวา) */
-        private static void TypeByKeyboard(AutomationElement field, string text, bool extraBackspace = false)
-        {
-            var r = field.BoundingRectangle;
-            Mouse.Click(new Point(r.Left + Math.Min(20, r.Width / 4), r.Top + r.Height / 2));
-
-            Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
-            Keyboard.Type(VirtualKeyShort.DELETE);
-            if (extraBackspace)   // กัน mask ของช่องวันที่เหลือตัวอักษรค้าง
-                for (int i = 0; i < 10; i++) Keyboard.Type(VirtualKeyShort.BACK);
-
-            if (!string.IsNullOrEmpty(text)) Keyboard.Type(text);
-            Keyboard.Type(VirtualKeyShort.TAB); // Tab ออกเพื่อ commit ค่า
-        }
-
-        /* เลือกรายการใน ComboBox (ประเภทการพ้นสภาพ / เหตุผล) แล้วรอจนค่าในช่องเปลี่ยนจริง */
-        private void SelectComboBoxItem(Window form, string comboId, string itemText)
-        {
-            var combo = Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(comboId)), 10000)
-                        ?? throw new Exception($"หา combobox '{comboId}' ไม่เจอ");
-
-            ClickByMouse(combo);
-            var item = Retry(() => _automation.GetDesktop().FindAllDescendants(cf => cf.ByControlType(ControlType.ListItem))
-                                       .FirstOrDefault(el => ReadText(el) == itemText), 3000);
-
-            if (item != null) ClickByMouse(item);
-            else { Keyboard.Type(itemText); Keyboard.Type(VirtualKeyShort.RETURN); }
-
-            WaitUntil(() => ReadText(combo).Contains(itemText), 3000);
-        }
+        // --- การกรอกข้อมูลเฉพาะหน้าจอนี้ (แท็บ/Pop-up ที่มีเฉพาะหน้านี้) ---
 
         /* สลับไปแท็บการคำนวณค่าจ้าง แล้วรอจนแท็บถูกเลือกจริง (ถ้าหาแท็บไม่เจอถือว่าฟิลด์แสดงอยู่แล้ว) */
         private void SwitchToCalcTab(Window form)
@@ -539,33 +461,6 @@ namespace HRMITestFlaUI.Pages.Personnel
                 WaitUntil(() => tab.Patterns.SelectionItem.Pattern.IsSelected.ValueOrDefault, 3000);
             }
             else ClickByMouse(tab);
-        }
-
-        /* ติ๊ก/ปลดติ๊ก CheckBox แล้วรอจนสถานะเปลี่ยนจริง */
-        private void ToggleCheckBox(Window form, string id, bool shouldBeChecked)
-        {
-            var chk = Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(id))?.AsCheckBox(), 5000)
-                      ?? throw new Exception($"หา checkbox '{id}' ไม่เจอ");
-            if (!WaitUntil(() => chk.Properties.IsEnabled.ValueOrDefault, 3000)) return;
-            if (chk.IsChecked == shouldBeChecked) return;
-
-            if (chk.Patterns.Toggle.IsSupported) chk.Patterns.Toggle.Pattern.Toggle();
-            else ClickByMouse(chk);
-            WaitUntil(() => chk.IsChecked == shouldBeChecked, 2000);
-        }
-
-        /* เลือกตัวเลือกใน RadioGroup แล้วรอจนถูกเลือกจริง */
-        private void SelectRadio(Window form, string groupId, string option)
-        {
-            var group = Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(groupId)), 5000) ?? throw new Exception($"ไม่พบ {groupId}");
-            var radio = group.FindFirstDescendant(cf => cf.ByName(option)) ?? throw new Exception($"ไม่พบตัวเลือก '{option}'");
-
-            if (radio.Patterns.SelectionItem.IsSupported)
-            {
-                radio.Patterns.SelectionItem.Pattern.Select();
-                WaitUntil(() => radio.Patterns.SelectionItem.Pattern.IsSelected.ValueOrDefault, 2000);
-            }
-            else ClickByMouse(radio);
         }
 
         /* เลือกพนักงาน: กด ... → รอตารางใน Pop-up โหลด → หาแถว (เลื่อน Page Down ได้) → ดับเบิลคลิก/Select → รอ Pop-up ปิด */
@@ -592,7 +487,7 @@ namespace HRMITestFlaUI.Pages.Personnel
             {
                 WaitUntil(() => GetGridRows(popup).Length > 0, 8000);
 
-                var row = FindRowByScrolling(popup, code)
+                var row = (code == AnyEmployee ? GetGridRows(popup).FirstOrDefault() : FindRowByScrolling(popup, code))
                           ?? throw new Exception($"ไม่พบรหัส '{code}' ใน Pop-up เลือกพนักงาน");
                 var r = row.BoundingRectangle;
                 Mouse.DoubleClick(new Point(r.Left + r.Width / 2, r.Top + r.Height / 2));
@@ -613,77 +508,6 @@ namespace HRMITestFlaUI.Pages.Personnel
                 throw;
             }
         }
-
-        /* ดึงแถวของตาราง (DataItem หรือ ListItem) */
-        private static AutomationElement[] GetGridRows(AutomationElement scope)
-        {
-            try
-            {
-                var rows = scope.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem));
-                return rows.Length > 0 ? rows : scope.FindAllDescendants(cf => cf.ByControlType(ControlType.ListItem));
-            }
-            catch { return Array.Empty<AutomationElement>(); }
-        }
-
-        /* หาแถวในตารางที่มีรหัสตรงกับ code (ตาราง virtualized: ไม่เจอก็กด Page Down ทีละหน้าแล้วรอแถวใหม่โหลด) */
-        private static AutomationElement? FindRowByScrolling(AutomationElement scope, string code)
-        {
-            AutomationElement? Match() => GetGridRows(scope)
-                .FirstOrDefault(r => ReadText(r) == code || r.FindAllDescendants().Any(c => ReadText(c) == code));
-
-            var found = Match();
-            var pageDown = scope.FindFirstDescendant(cf => cf.ByName("Page Down"));
-            for (int i = 0; found == null && pageDown != null && i < 15; i++)
-            {
-                ClickByMouse(pageDown);
-                WaitUntil(() => (found = Match()) != null, 500);
-            }
-            return found;
-        }
-
-        /* ตรวจข้อความใน Task Result แบบหน้าจอนี้: รอนาน (80 วินาที), เทียบแบบไม่สนช่องว่าง และรวมข้อความยาวที่ถูกแยกหลาย element */
-        private void AssertScreenTaskResult(Window form, string[] msgs, string testName)
-        {
-            var pending = new HashSet<string>(msgs);
-            var sw = Stopwatch.StartNew();
-
-            while (sw.ElapsedMilliseconds < SaveTimeoutMs && pending.Count > 0)
-            {
-                var panel = FindTaskResultPanel(form, 500);
-                if (panel != null)
-                {
-                    var texts = GetPanelTexts(panel).Select(Squash).ToList();
-                    texts.Add(string.Concat(texts));
-                    foreach (var m in pending.ToList())
-                    {
-                        if (texts.Any(t => t.Contains(Squash(m)))) pending.Remove(m);
-                    }
-                }
-            }
-
-            if (pending.Count > 0) throw new Exception($"ไม่พบข้อความ: '{string.Join("', '", pending)}'");
-            LogSuccess(testName, $"พบข้อความ: {string.Join(",", msgs.Select(m => $"'{m}'"))}");
-        }
-
-        /* คลิกด้วยเมาส์ที่กึ่งกลาง element (ปุ่ม DevExpress บางตัว .Click() แล้วไม่ติด) */
-        private static void ClickByMouse(AutomationElement el)
-        {
-            var r = el.BoundingRectangle;
-            if (!r.IsEmpty) Mouse.Click(new Point(r.Left + r.Width / 2, r.Top + r.Height / 2));
-            else el.Click();
-        }
-
-        /* อ่านค่าจริงของ element (Value → LegacyIAccessible.Value → Name) */
-        private static string ReadText(AutomationElement? e)
-        {
-            if (e == null) return "";
-            try { if (e.Patterns.Value.IsSupported && !string.IsNullOrWhiteSpace(e.Patterns.Value.Pattern.Value.Value)) return e.Patterns.Value.Pattern.Value.Value.Trim(); } catch { }
-            try { if (e.Patterns.LegacyIAccessible.IsSupported && !string.IsNullOrWhiteSpace(e.Patterns.LegacyIAccessible.Pattern.Value.Value)) return e.Patterns.LegacyIAccessible.Pattern.Value.Value.Trim(); } catch { }
-            try { return (e.Name ?? "").Trim(); } catch { return ""; }
-        }
-
-        /* ตัดช่องว่างทั้งหมดออก (ข้อความในโปรแกรมเว้นวรรคไม่ตรงกับ TestStep) */
-        private static string Squash(string s) => new string(s.Where(c => !char.IsWhiteSpace(c)).ToArray());
 
 
         // =========================================================================================
@@ -843,6 +667,140 @@ namespace HRMITestFlaUI.Pages.Personnel
             Keyboard.Press(VirtualKeyShort.DELETE);
 
             if (!string.IsNullOrEmpty(text)) Keyboard.Type(text);
+        }
+
+        // --- ตัวช่วยกรอก/อ่านค่า Control กลาง (รับ AutomationId/ข้อความผ่านพารามิเตอร์ ใช้ซ้ำได้ทุกหน้า) ---
+
+        /* กรอกช่องวันที่ (คลิก → ลบค่าเดิม → พิมพ์ → Tab) ค่าว่าง = เคลียร์ช่อง */
+        private void SetDate(AutomationElement scope, string id, string dateText)
+        {
+            var el = Retry(() => scope.FindFirstDescendant(cf => cf.ByAutomationId(id)), 3000) ?? throw new Exception($"ไม่พบช่องวันที่ {id}");
+            if (!WaitUntil(() => el.Properties.IsEnabled.ValueOrDefault, 3000)) throw new Exception($"ช่องวันที่ '{id}' ยัง disabled อยู่");
+            TypeByKeyboard(el, dateText, extraBackspace: true);
+        }
+
+        /* เคลียร์ค่าในช่อง (เลขที่เอกสาร / พนักงาน) ด้วยคีย์บอร์ด */
+        private void ClearField(Window form, string id)
+        {
+            var el = Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(id)), 5000) ?? throw new Exception($"หาช่อง '{id}' ไม่เจอ");
+            if (!WaitUntil(() => el.Properties.IsEnabled.ValueOrDefault, 3000)) return;
+            TypeByKeyboard(el, "", extraBackspace: true);
+            WaitUntil(() => ReadText(el) == "", 2000);
+        }
+
+        /* พิมพ์ลงช่องด้วยคีย์บอร์ดจริง (คลิกฝั่งซ้ายของช่อง กันโดนปุ่มที่ขอบขวา) */
+        private static void TypeByKeyboard(AutomationElement field, string text, bool extraBackspace = false)
+        {
+            var r = field.BoundingRectangle;
+            Mouse.Click(new Point(r.Left + Math.Min(20, r.Width / 4), r.Top + r.Height / 2));
+
+            Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
+            Keyboard.Type(VirtualKeyShort.DELETE);
+            if (extraBackspace)   // กัน mask ของช่องวันที่เหลือตัวอักษรค้าง
+                for (int i = 0; i < 10; i++) Keyboard.Type(VirtualKeyShort.BACK);
+
+            if (!string.IsNullOrEmpty(text)) Keyboard.Type(text);
+            Keyboard.Type(VirtualKeyShort.TAB); // Tab ออกเพื่อ commit ค่า
+        }
+
+        /* เลือกรายการใน ComboBox (ประเภทการพ้นสภาพ / เหตุผล) แล้วรอจนค่าในช่องเปลี่ยนจริง */
+        private void SelectComboBoxItem(Window form, string comboId, string itemText)
+        {
+            var combo = Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(comboId)), 10000)
+                        ?? throw new Exception($"หา combobox '{comboId}' ไม่เจอ");
+
+            ClickByMouse(combo);
+            var item = Retry(() => _automation.GetDesktop().FindAllDescendants(cf => cf.ByControlType(ControlType.ListItem))
+                                       .FirstOrDefault(el => ReadText(el) == itemText), 3000);
+
+            if (item != null) ClickByMouse(item);
+            else { Keyboard.Type(itemText); Keyboard.Type(VirtualKeyShort.RETURN); }
+
+            WaitUntil(() => ReadText(combo).Contains(itemText), 3000);
+        }
+
+        /* ติ๊ก/ปลดติ๊ก CheckBox แล้วรอจนสถานะเปลี่ยนจริง */
+        private void ToggleCheckBox(Window form, string id, bool shouldBeChecked)
+        {
+            var chk = Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(id))?.AsCheckBox(), 5000)
+                      ?? throw new Exception($"หา checkbox '{id}' ไม่เจอ");
+            if (!WaitUntil(() => chk.Properties.IsEnabled.ValueOrDefault, 3000)) return;
+            if (chk.IsChecked == shouldBeChecked) return;
+
+            if (chk.Patterns.Toggle.IsSupported) chk.Patterns.Toggle.Pattern.Toggle();
+            else ClickByMouse(chk);
+            WaitUntil(() => chk.IsChecked == shouldBeChecked, 2000);
+        }
+
+        /* เลือกตัวเลือกใน RadioGroup แล้วรอจนถูกเลือกจริง */
+        private void SelectRadio(Window form, string groupId, string option)
+        {
+            var group = Retry(() => form.FindFirstDescendant(cf => cf.ByAutomationId(groupId)), 5000) ?? throw new Exception($"ไม่พบ {groupId}");
+            var radio = group.FindFirstDescendant(cf => cf.ByName(option)) ?? throw new Exception($"ไม่พบตัวเลือก '{option}'");
+
+            if (radio.Patterns.SelectionItem.IsSupported)
+            {
+                radio.Patterns.SelectionItem.Pattern.Select();
+                WaitUntil(() => radio.Patterns.SelectionItem.Pattern.IsSelected.ValueOrDefault, 2000);
+            }
+            else ClickByMouse(radio);
+        }
+
+        /* ดึงแถวของตาราง (DataItem หรือ ListItem) */
+        private static AutomationElement[] GetGridRows(AutomationElement scope)
+        {
+            try
+            {
+                var rows = scope.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem));
+                return rows.Length > 0 ? rows : scope.FindAllDescendants(cf => cf.ByControlType(ControlType.ListItem));
+            }
+            catch { return Array.Empty<AutomationElement>(); }
+        }
+
+        /* หาแถวในตารางที่มีรหัสตรงกับ code: ตาราง virtualized ต้องเลื่อนทีละหน้า
+    ลองชื่อปุ่มเลื่อนหลายแบบ (Page Down / Line Down / Next Page) และรอให้แถวใหม่โหลดทุกครั้ง */
+        private static AutomationElement? FindRowByScrolling(AutomationElement scope, string code)
+        {
+            AutomationElement? Match() => GetGridRows(scope)
+                .FirstOrDefault(r => ReadText(r) == code || r.FindAllDescendants().Any(c => ReadText(c) == code));
+
+            var found = Match();
+            if (found != null) return found;
+
+            var scroller = FindScrollButton(scope);
+            for (int i = 0; found == null && scroller != null && i < 40; i++)
+            {
+                ClickByMouse(scroller);
+                WaitUntil(() => (found = Match()) != null, 600);
+            }
+            return found;
+        }
+
+        /* หาปุ่มเลื่อนของตารางใน Pop-up (ลองหลายชื่อตามที่ DevExpress ใช้) */
+        private static AutomationElement? FindScrollButton(AutomationElement scope)
+        {
+            foreach (var name in new[] { "Page Down", "Line Down", "Next Page" })
+            {
+                var b = scope.FindFirstDescendant(cf => cf.ByName(name));
+                if (b != null) return b;
+            }
+            return null;
+        }
+        /* คลิกด้วยเมาส์ที่กึ่งกลาง element (ปุ่ม DevExpress บางตัว .Click() แล้วไม่ติด) */
+        private static void ClickByMouse(AutomationElement el)
+        {
+            var r = el.BoundingRectangle;
+            if (!r.IsEmpty) Mouse.Click(new Point(r.Left + r.Width / 2, r.Top + r.Height / 2));
+            else el.Click();
+        }
+
+        /* อ่านค่าจริงของ element (Value → LegacyIAccessible.Value → Name) */
+        private static string ReadText(AutomationElement? e)
+        {
+            if (e == null) return "";
+            try { if (e.Patterns.Value.IsSupported && !string.IsNullOrWhiteSpace(e.Patterns.Value.Pattern.Value.Value)) return e.Patterns.Value.Pattern.Value.Value.Trim(); } catch { }
+            try { if (e.Patterns.LegacyIAccessible.IsSupported && !string.IsNullOrWhiteSpace(e.Patterns.LegacyIAccessible.Pattern.Value.Value)) return e.Patterns.LegacyIAccessible.Pattern.Value.Value.Trim(); } catch { }
+            try { return (e.Name ?? "").Trim(); } catch { return ""; }
         }
 
         private AutomationElement? FindGridElement(string val) =>

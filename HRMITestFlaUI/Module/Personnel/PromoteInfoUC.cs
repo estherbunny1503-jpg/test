@@ -116,16 +116,15 @@ namespace HRMITestFlaUI.Module.Personnel
                 false)
         };
 
-        // [ขั้นที่ 2] ข้อมูลทดสอบ Validation ตอนเพิ่ม (Add Validation)
+        // [ขั้นที่ 2] ข้อมูลทดสอบ Validation ตอนเพิ่ม (ตาม TestStep แถว 2 — วันที่ระบบเลือกให้อัตโนมัติ จึงไม่กรอก)
         private static readonly ValidationItem[] Step2_AddValidationCases =
         {
-            new("TestCase01_EmptyDates", "EP0006", "", "", "100", null, null, null, "Save", 26,
-                "Validating: Empty Dates...", new[] { "วันที่" }),
-
-            new("TestCase02_NoPromoteType", "EP0006", "15/07/2570", "31/12/2570", null, null, null, null, "Save", 30,
+            // ไม่เลือกประเภทการปรับ → Save → เตือน "ยังไม่ได้เลือก"
+            new("TestCase01_NoPromoteType", "EP0006", null, null, null, null, null, null, "Save", 26,
                 "Validating: No Promote Type...", new[] { MsgNoPromoteType }),
 
-            new("TestCase03_EmptyEmployee", "", "15/07/2570", "31/12/2570", "100", null, null, null, "Save and New", 34,
+            // ไม่เลือกพนักงาน (ปรับเงินเดือน 100) → Save and New → เตือน "พนักงาน ไม่สามารถเป็นค่าว่าง"
+            new("TestCase02_EmptyEmployee", "", "15/07/2570", "31/12/2570", "100", null, null, null, "Save and New", 30,
                 "Validating: Empty Employee...", new[] { MsgEmployeeEmpty })
         };
 
@@ -277,7 +276,7 @@ namespace HRMITestFlaUI.Module.Personnel
         /// </summary>
         public void RunAllValidationTests()
         {
-            const string stage = "TestCase01-06_Validation";
+            const string stage = "TestCase01-02_Validation";
             TestProgressHelper.Report(22, $"Opening {MenuName} Form for Validation Tests...");
 
             Window form;
@@ -293,10 +292,10 @@ namespace HRMITestFlaUI.Module.Personnel
                     testCase.Progress, testCase.ProgressMsg);
             }
 
-            // เคสเสริมเฉพาะหน้าจอ: พฤติกรรมเมื่อปิด Dialog ข้อความเตือน
-            const string dupName = "TestCase04-06";
-            RunStep($"{dupName}_CloseSequence",
-                () => RunCloseDialogSequence(form, dupName, MsgEmployeeEmpty),
+            // Close Sequence ตาม TestStep แถว 2: กด Close → Yes / Cancel / No
+            const string closePrefix = "TestCase02_EmptyEmployee";
+            RunStep($"{closePrefix}_CloseSequence",
+                () => RunCloseDialogSequence(form, closePrefix, MsgEmployeeEmpty),
                 40, "Validating: Empty Employee Close Sequence...");
         }
 
